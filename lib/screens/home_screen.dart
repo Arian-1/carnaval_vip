@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'asignar_lote_screen.dart';
 
 class HomeScreen extends StatelessWidget {
   const HomeScreen({super.key});
@@ -73,7 +74,12 @@ class HomeScreen extends StatelessWidget {
                 ListTile(
                   leading: const Icon(Icons.map_outlined),
                   title: const Text("Asignar lote"),
-                  onTap: () {},
+                  onTap: () {
+                    Navigator.push(
+                      context,
+                      MaterialPageRoute(builder: (context) => const AsignarLoteScreen()),
+                    );
+                  },
                 ),
                 ListTile(
                   leading: const Icon(Icons.people),
@@ -130,7 +136,7 @@ class HomeScreen extends StatelessWidget {
                     ),
                   ),
                   const SizedBox(height: 20),
-                  _buildCroquis(),
+                  _buildCroquis(context),
                   const SizedBox(height: 30),
                   ElevatedButton(
                     style: ElevatedButton.styleFrom(
@@ -155,32 +161,31 @@ class HomeScreen extends StatelessWidget {
     );
   }
 
-  // Construye el croquis con filas y columnas de recuadros
-  Widget _buildCroquis() {
+  // Se añade BuildContext para poder usar Navigator en los recuadros
+  Widget _buildCroquis(BuildContext context) {
     return Center(
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Row(
             children: [
-              _buildSectionBox("Sillas", 200, 100, const Color(0xFF8B348C)),
+              _buildSectionBox(context, "Sillas", 200, 100, const Color(0xFF8B348C)),
               const SizedBox(width: 10),
-              _buildSectionBox("Lotes", 100, 100, const Color(0xFFA24DAF)),
+              _buildSectionBox(context, "Lotes", 100, 100, const Color(0xFFA24DAF)),
             ],
           ),
           const SizedBox(height: 10),
           Row(
             children: [
-              _buildSectionBox("Tarima", 200, 60, const Color(0xFFBA72C4)),
+              _buildSectionBox(context, "Tarima", 200, 60, const Color(0xFFBA72C4)),
               const SizedBox(width: 10),
-              _buildSectionBox(
-                  "Zona comercial", 100, 60, const Color(0xFFD989E2)),
+              _buildSectionBox(context, "Zona comercial", 100, 60, const Color(0xFFD989E2)),
             ],
           ),
           const SizedBox(height: 10),
           Row(
             children: [
-              _buildSectionBox("Baños", 80, 40, const Color(0xFFE6A2EB)),
+              _buildSectionBox(context, "Baños", 80, 40, const Color(0xFFE6A2EB)),
             ],
           ),
         ],
@@ -188,22 +193,33 @@ class HomeScreen extends StatelessWidget {
     );
   }
 
-  // Construye cada recuadro con tamaño y color definidos
-  Widget _buildSectionBox(
-      String title, double width, double height, Color color) {
-    return Container(
-      width: width,
-      height: height,
-      alignment: Alignment.center,
-      decoration: BoxDecoration(
-        color: color,
-        borderRadius: BorderRadius.circular(8),
-      ),
-      child: Text(
-        title,
-        style: const TextStyle(fontSize: 16, color: Colors.white),
-        textAlign: TextAlign.center,
+  // Se recibe el BuildContext como primer parámetro para poder navegar
+  Widget _buildSectionBox(BuildContext context, String title, double width, double height, Color color) {
+    return GestureDetector(
+      onTap: () {
+        if (title == "Lotes") {
+          Navigator.push(
+            context,
+            MaterialPageRoute(builder: (context) => const AsignarLoteScreen()),
+          );
+        }
+      },
+      child: Container(
+        width: width,
+        height: height,
+        alignment: Alignment.center,
+        decoration: BoxDecoration(
+          color: color,
+          borderRadius: BorderRadius.circular(8),
+        ),
+        child: Text(
+          title,
+          style: const TextStyle(fontSize: 16, color: Colors.white),
+          textAlign: TextAlign.center,
+        ),
       ),
     );
   }
 }
+
+
