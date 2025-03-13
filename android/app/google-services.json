@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "218980208588",
+    "project_id": "eventosvipdb",
+    "storage_bucket": "eventosvipdb.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:218980208588:android:c0c1c582d794393aeb5769",
+        "android_client_info": {
+          "package_name": "com.carnaval.carnaval_vip"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyDF62ZBdK4IhPXsW0klGz0JRXZ5HFIhz0Y"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
