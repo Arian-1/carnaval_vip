@@ -2,6 +2,8 @@ import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'asignar_lote_screen.dart';
+import 'asignar_sillas.dart';
+import 'mi_cuenta_screen.dart';
 
 class HomeScreen extends StatelessWidget {
   const HomeScreen({super.key});
@@ -64,12 +66,22 @@ class HomeScreen extends StatelessWidget {
                 ListTile(
                   leading: const Icon(Icons.person),
                   title: const Text("Mi cuenta"),
-                  onTap: () {},
+                  onTap: () {
+                    Navigator.push(
+                      context,
+                      MaterialPageRoute(builder: (context) => const MiCuentaScreen()),
+                    );
+                  },
                 ),
                 ListTile(
                   leading: const Icon(Icons.event_seat),
                   title: const Text("Asignar sillas"),
-                  onTap: () {},
+                  onTap: () {
+                    Navigator.push(
+                      context,
+                      MaterialPageRoute(builder: (context) => const AsignarSillaScreen()),
+                    );
+                  },
                 ),
                 ListTile(
                   leading: const Icon(Icons.map_outlined),
@@ -201,6 +213,11 @@ class HomeScreen extends StatelessWidget {
           Navigator.push(
             context,
             MaterialPageRoute(builder: (context) => const AsignarLoteScreen()),
+          );
+        } else if (title == "Sillas") {
+        Navigator.push(
+          context,
+          MaterialPageRoute(builder: (context) => const AsignarSillaScreen()),
           );
         }
       },
