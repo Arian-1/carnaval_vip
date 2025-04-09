@@ -4,6 +4,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'asignar_lote_screen.dart';
 import 'asignar_sillas.dart';
 import 'mi_cuenta_screen.dart';
+import 'clientes_screen.dart';
 
 class HomeScreen extends StatelessWidget {
   const HomeScreen({super.key});
@@ -42,6 +43,7 @@ class HomeScreen extends StatelessWidget {
               style: TextStyle(color: Colors.white),
             ),
             backgroundColor: const Color(0xFF5E1A47),
+            iconTheme: const IconThemeData(color: Colors.white),
           ),
           drawer: Drawer(
             child: ListView(
@@ -96,7 +98,12 @@ class HomeScreen extends StatelessWidget {
                 ListTile(
                   leading: const Icon(Icons.people),
                   title: const Text("Clientes"),
-                  onTap: () {},
+                  onTap: () {
+                    Navigator.push(
+                      context,
+                      MaterialPageRoute(builder: (context) => ClientesScreen()),
+                    );
+                  },
                 ),
                 ListTile(
                   leading: const Icon(Icons.attach_money),

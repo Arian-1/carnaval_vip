@@ -84,6 +84,7 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
                 _currentPage == _pages.length - 1
                     ? "Iniciar sesión o crear cuenta"
                     : "Siguiente",
+                style: const TextStyle(color: Colors.white),
               ),
             ),
           ),
