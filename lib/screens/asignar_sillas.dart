@@ -1,355 +1,418 @@
+// lib/screens/asignar_sillas.dart
+
 import 'dart:io';
-import 'dart:typed_data';
 import 'dart:ui' as ui;
+
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/rendering.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:share_plus/share_plus.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 
-import 'pago_boletos_screen.dart';
 import 'editar_filas_columnas_screen.dart';
+import 'pago_boletos_screen.dart';
 
 class AsignarSillaScreen extends StatefulWidget {
-  const AsignarSillaScreen({Key? key}) : super(key: key);
+  final int zoneIndex;
+  const AsignarSillaScreen({Key? key, required this.zoneIndex})
+      : super(key: key);
 
   @override
-  _AsignarSillaScreenState createState() => _AsignarSillaScreenState();
+  State<AsignarSillaScreen> createState() => _AsignarSillaScreenState();
 }
 
 class _AsignarSillaScreenState extends State<AsignarSillaScreen> {
-  // Key para capturar el croquis (RepaintBoundary)
   final GlobalKey _repaintKey = GlobalKey();
+  bool _loading = true;
+  String? _error;
 
-  // Estado local de selección de asientos (inicialmente 3x10, se ajusta cuando Firestore cambia)
-  List<List<bool>> seatStatus = List.generate(3, (row) => List.generate(10, (col) => false));
+  // Configuración de esta zona:
+  late int _totalSillas;
+  late int _filas;
+  late int _columnas;
+  late List<int> _precios;               // precios por fila
+  late List<String> _seatIds;            // IDs de asiento “A1”… hasta total
+  late List<List<bool>> _selMatrix;      // matriz de selección
+  List<List<bool>> _occMatrix = [];      // matriz de ocupados
 
-  /// Alterna la selección de un asiento, siempre que no esté ocupado.
-  void toggleSeat(int row, int col, Set<String> occupiedSet) {
-    String seatId = "${String.fromCharCode(65 + row)}${col + 1}";
-    if (!occupiedSet.contains(seatId)) {
+  @override
+  void initState() {
+    super.initState();
+    _loadConfig();
+  }
+
+  Future<void> _loadConfig() async {
+    try {
+      final uid     = FirebaseAuth.instance.currentUser!.uid;
+      final userRef = FirebaseFirestore.instance.collection('users').doc(uid);
+
+      // 1) Cargo listas completas de Firestore
+      final sSnap = await userRef.collection('config').doc('sillas').get();
+      final sData = sSnap.data()!;
+      final counts = List<int>.from(sData['counts'] ?? []);
+      final rows   = List<int>.from(sData['rows']   ?? []);
+      final cols   = List<int>.from(sData['cols']   ?? []);
+
+      // 2) Extraigo sólo mi zona
+      final zi = widget.zoneIndex;
+      _totalSillas = counts[zi];
+      _filas       = rows[zi];
+      _columnas    = cols[zi];
+
+      // 3) Genero los IDs de asiento (“A1”…) hasta totalSillas
+      _seatIds = List.generate(
+        _filas * _columnas,
+            (i) => '${String.fromCharCode(65 + i ~/ _columnas)}${(i % _columnas) + 1}',
+      ).take(_totalSillas).toList();
+
+      // 4) Cargo precios guardados (o zero-fill)
+      final priceDoc = await userRef
+          .collection('config')
+          .doc('prices')
+          .collection('sillas')
+          .doc('zona_${zi+1}')
+          .get();
+
+      if (priceDoc.exists) {
+        final raw = List<dynamic>.from(priceDoc.data()!['filaPrecios'] ?? []);
+        _precios = List.generate(
+          _filas,
+              (r) => (r < raw.length && raw[r] is int) ? raw[r] as int : 0,
+        );
+      } else {
+        // ningún precio definido: llenamos con ceros y luego pedimos al usuario
+        _precios = List.filled(_filas, 0);
+        // post-frame callback para abrir diálogo
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          _promptForPrecios();
+        });
+      }
+
+      // 5) Inicializo matrices
+      _selMatrix = List.generate(_filas, (_) => List.filled(_columnas, false));
+      _occMatrix = List.generate(_filas, (_) => List.filled(_columnas, false));
+
+      // 6) Marco ocupados según reservas
+      final resSnap = await userRef
+          .collection('reservas')
+          .where('tipo', isEqualTo: 'silla')
+          .where('zona', isEqualTo: zi)
+          .get();
+      final reserved = <String>{};
+      for (var doc in resSnap.docs) {
+        final seats = List<dynamic>.from(doc.data()['asientos'] ?? []);
+        reserved.addAll(seats.cast<String>());
+      }
+      for (var seat in reserved) {
+        final idx = _seatIds.indexOf(seat);
+        if (idx >= 0) {
+          final r = idx ~/ _columnas;
+          final c = idx % _columnas;
+          _occMatrix[r][c] = true;
+        }
+      }
+
+      setState(() => _loading = false);
+    } catch (e) {
       setState(() {
-        seatStatus[row][col] = !seatStatus[row][col];
+        _error   = e.toString();
+        _loading = false;
       });
     }
   }
 
-  /// Captura el croquis envuelto en el RepaintBoundary y lo comparte.
-  Future<void> _captureAndSharePng() async {
-    try {
-      final boundary = _repaintKey.currentContext!.findRenderObject() as RenderRepaintBoundary;
-      final image = await boundary.toImage(pixelRatio: 2.0);
-      final byteData = await image.toByteData(format: ui.ImageByteFormat.png);
-      if (byteData != null) {
-        final pngBytes = byteData.buffer.asUint8List();
-        final tempDir = await getTemporaryDirectory();
-        final file = await File('${tempDir.path}/seat_map.png').create();
-        await file.writeAsBytes(pngBytes);
-        await Share.shareXFiles([XFile(file.path)], text: '¡Mira mis asientos!');
-      }
-    } catch (e) {
-      print("Error al capturar y compartir: $e");
-    }
+  /// Diálogo para capturar el precio de cada fila.
+  Future<void> _promptForPrecios() async {
+    final controllers = List.generate(
+      _filas,
+          (r) => TextEditingController(text: _precios[r].toString()),
+    );
+    await showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Configura precios por fila'),
+        content: SingleChildScrollView(
+          child: Column(
+            children: [
+              for (var r = 0; r < _filas; r++)
+                Padding(
+                  padding: const EdgeInsets.symmetric(vertical: 6),
+                  child: TextField(
+                    controller: controllers[r],
+                    keyboardType: TextInputType.number,
+                    decoration: InputDecoration(
+                      labelText: 'Fila ${String.fromCharCode(65 + r)}',
+                      prefixText: '\$',
+                    ),
+                  ),
+                ),
+            ],
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text('Cancelar'),
+          ),
+          ElevatedButton(
+            onPressed: () async {
+              // 1) Leer valores
+              final nuevos = controllers.map((c) {
+                return int.tryParse(c.text) ?? 0;
+              }).toList();
+
+              // 2) Guardar en Firestore
+              final uid     = FirebaseAuth.instance.currentUser!.uid;
+              final userRef = FirebaseFirestore.instance.collection('users').doc(uid);
+              await userRef
+                  .collection('config')
+                  .doc('prices')
+                  .collection('sillas')
+                  .doc('zona_${widget.zoneIndex + 1}')
+                  .set({'filaPrecios': nuevos});
+
+              // 3) Actualizar estado
+              setState(() {
+                _precios = nuevos;
+              });
+
+              Navigator.pop(ctx);
+            },
+            child: const Text('Guardar'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _toggleSeat(int r, int c) {
+    if (_occMatrix[r][c]) return;
+    setState(() => _selMatrix[r][c] = !_selMatrix[r][c]);
+  }
+
+  Future<void> _captureAndShare() async {
+    final boundary = _repaintKey.currentContext!
+        .findRenderObject() as RenderRepaintBoundary;
+    final image    = await boundary.toImage(pixelRatio: 2.0);
+    final bytes    = (await image.toByteData(format: ui.ImageByteFormat.png))!
+        .buffer.asUint8List();
+    final dir      = await getTemporaryDirectory();
+    final file     = await File('${dir.path}/asientos.png').create();
+    await file.writeAsBytes(bytes);
+    await Share.shareXFiles(
+      [XFile(file.path)],
+      text: 'Croquis zona ${widget.zoneIndex + 1} con precios por fila',
+    );
   }
 
   @override
   Widget build(BuildContext context) {
+    if (_loading) {
+      return const Scaffold(
+        body: Center(child: CircularProgressIndicator()),
+      );
+    }
+    if (_error != null) {
+      return Scaffold(
+        body: Center(child: Text('Error: $_error')),
+      );
+    }
+
+    // Calcular subtotal y lista seleccionados
+    int subtotal = 0, painted = 0;
+    final selList = <String>[];
+    for (var r = 0; r < _filas; r++) {
+      for (var c = 0; c < _columnas; c++) {
+        if (painted >= _seatIds.length) break;
+        if (_selMatrix[r][c]) {
+          selList.add(_seatIds[painted]);
+          subtotal += _precios[r];
+        }
+        painted++;
+      }
+    }
+    final total = subtotal;
+
     return Scaffold(
       appBar: AppBar(
-        title: const Text("CARNAVAL VIP", style: TextStyle(color: Colors.white)),
+        title: Text('Sillas zona ${widget.zoneIndex + 1}',
+            style: const TextStyle(color: Colors.white)),
         backgroundColor: const Color(0xFF5A0F4D),
-        centerTitle: true,
-        leading: IconButton(
-          icon: const Icon(Icons.arrow_back, color: Colors.white),
-          onPressed: () => Navigator.pop(context),
-        ),
+        leading: const BackButton(color: Colors.white),
       ),
-      body: StreamBuilder<DocumentSnapshot>(
-        stream: FirebaseFirestore.instance.collection("salas").doc("sala1").snapshots(),
-        builder: (context, snapshot) {
-          if (!snapshot.hasData) {
-            return const Center(child: CircularProgressIndicator());
-          }
+      body: SingleChildScrollView(
+        padding: const EdgeInsets.all(16),
+        child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          const Text('Escoge los asientos.',
+              style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+          const SizedBox(height: 10),
 
-          // Datos de Firestore
-          Map<String, dynamic> data = snapshot.data!.data() as Map<String, dynamic>;
+          // ──────────────────────────────────
+          // Todo el croquis y precios queda dentro del RepaintBoundary:
+          RepaintBoundary(
+            key: _repaintKey,
+            child: Card(
+              elevation: 2,
+              shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(8)),
+              child: Padding(
+                padding: const EdgeInsets.all(16),
+                child: Column(children: [
+                  // croquis
+                  Container(
+                    decoration: BoxDecoration(
+                      color: Colors.white,
+                      border: Border.all(color: Colors.grey.shade300),
+                      borderRadius: BorderRadius.circular(5),
+                    ),
+                    padding: const EdgeInsets.all(16),
+                    child: Column(children: [
+                      // cabezal gris
+                      Container(height: 20, color: Colors.grey.shade300),
+                      const SizedBox(height: 12),
 
-          // Cantidad dinámica de filas y columnas
-          int rowCount = data['rowCount'] ?? 3;
-          int colCount = data['colCount'] ?? 10;
+                      // numeración columnas
+                      Row(children: [
+                        const SizedBox(width: 24),
+                        for (var c = 0; c < _columnas; c++)
+                          Expanded(child: Center(child: Text('${c + 1}'))),
+                      ]),
+                      const SizedBox(height: 8),
 
-          // Ajustar seatStatus si el tamaño cambió
-          if (seatStatus.length != rowCount ||
-              (seatStatus.isNotEmpty && seatStatus[0].length != colCount)) {
-            seatStatus = List.generate(rowCount, (r) => List.generate(colCount, (c) => false));
-          }
-
-          // Asientos ocupados
-          List<dynamic> occupiedList = data['occupiedSeats'] ?? [];
-          Set<String> occupiedSet = occupiedList.map((e) => e.toString()).toSet();
-
-          // Precios por fila
-          Map<String, dynamic> pricesMap = data['rowPrices'] ?? {};
-          Map<int, int> rowPrices = {};
-          for (int i = 0; i < rowCount; i++) {
-            if (pricesMap.containsKey(i.toString())) {
-              rowPrices[i] = pricesMap[i.toString()];
-            } else {
-              // Valores por defecto
-              if (i == 0) {
-                rowPrices[i] = 250;
-              } else if (i == 1) {
-                rowPrices[i] = 200;
-              } else if (i == 2) {
-                rowPrices[i] = 150;
-              } else {
-                rowPrices[i] = 200;
-              }
-            }
-          }
-
-          // Calcular asientos seleccionados y subtotal
-          List<String> selectedSeats = [];
-          int subtotal = 0;
-          for (int i = 0; i < seatStatus.length; i++) {
-            for (int j = 0; j < seatStatus[i].length; j++) {
-              if (seatStatus[i][j]) {
-                String seatId = "${String.fromCharCode(65 + i)}${j + 1}";
-                selectedSeats.add(seatId);
-                subtotal += rowPrices[i] ?? 0;
-              }
-            }
-          }
-          int total = subtotal;
-
-          return SingleChildScrollView(
-            child: Padding(
-              padding: const EdgeInsets.all(16.0),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  const Text(
-                    "Escoge los asientos.",
-                    style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
-                  ),
-                  const SizedBox(height: 10),
-
-                  // RepaintBoundary para capturar el croquis
-                  RepaintBoundary(
-                    key: _repaintKey,
-                    child: Container(
-
-                      decoration: BoxDecoration(
-                        color: Colors.white,
-                        border: Border.all(color: Colors.grey.shade300),
-                        borderRadius: BorderRadius.circular(5),
-                      ),
-                      padding: const EdgeInsets.all(16.0),
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          // Barra gris (representación de la pantalla)
-                          Container(
-                            height: 20,
-                            color: Colors.grey.shade300,
-                            margin: const EdgeInsets.only(bottom: 20),
+                      // filas de sillas
+                      for (var r = 0; r < _filas; r++)
+                        Row(children: [
+                          SizedBox(
+                            width: 24,
+                            child: Center(
+                              child: Text(
+                                String.fromCharCode(65 + r),
+                                style: const TextStyle(fontWeight: FontWeight.bold),
+                              ),
+                            ),
                           ),
-                          // Números de columna
-                          Row(
-                            mainAxisAlignment: MainAxisAlignment.center,
-                            children: [
-                              const SizedBox(width: 20),
-                              ...List.generate(colCount, (index) {
-                                return Expanded(
-                                  child: Center(child: Text("${index + 1}")),
-                                );
-                              }),
-                            ],
-                          ),
-                          const SizedBox(height: 10),
-                          // Filas de asientos
-                          ...List.generate(rowCount, (row) {
-                            return Row(
-                              children: [
-                                // Etiqueta de la fila (A, B, C, ...)
-                                SizedBox(
-                                  width: 20,
-                                  child: Center(
-                                    child: Text(
-                                      String.fromCharCode(65 + row),
-                                      style: const TextStyle(fontWeight: FontWeight.bold),
+                          for (var c = 0; c < _columnas; c++)
+                            if (r * _columnas + c < _seatIds.length)
+                              Expanded(
+                                child: GestureDetector(
+                                  onTap: () => _toggleSeat(r, c),
+                                  child: Container(
+                                    margin: const EdgeInsets.all(4),
+                                    width: 24,
+                                    height: 24,
+                                    decoration: BoxDecoration(
+                                      shape: BoxShape.circle,
+                                      color: _occMatrix[r][c]
+                                          ? Colors.purple
+                                          : (_selMatrix[r][c]
+                                          ? Colors.pinkAccent
+                                          : Colors.grey),
+                                      border:
+                                      Border.all(color: Colors.black, width: 1),
                                     ),
                                   ),
                                 ),
-                                ...List.generate(colCount, (col) {
-                                  String seatId = "${String.fromCharCode(65 + row)}${col + 1}";
-                                  bool isOccupied = occupiedSet.contains(seatId);
-                                  bool isSelected = seatStatus[row][col];
-                                  return Expanded(
-                                    child: Padding(
-                                      padding: const EdgeInsets.all(2.0),
-                                      child: GestureDetector(
-                                        onTap: () => toggleSeat(row, col, occupiedSet),
-                                        child: Container(
-                                          width: 24,
-                                          height: 24,
-                                          decoration: BoxDecoration(
-                                            shape: BoxShape.circle,
-                                            border: Border.all(color: Colors.black, width: 1),
-                                            color: isOccupied
-                                                ? Colors.purple
-                                                : (isSelected ? Colors.pinkAccent : Colors.grey),
-                                          ),
-                                        ),
-                                      ),
-                                    ),
-                                  );
-                                }),
-                              ],
-                            );
-                          }),
-                          const SizedBox(height: 20),
-
-                          // Leyenda
-                          Row(
-                            children: [
-                              Container(width: 16, height: 16, color: Colors.purple),
-                              const SizedBox(width: 5),
-                              const Text("Ocupado"),
-                              const SizedBox(width: 15),
-                              Container(width: 16, height: 16, color: Colors.grey),
-                              const SizedBox(width: 5),
-                              const Text("Libre"),
-                              const SizedBox(width: 15),
-                              Container(width: 16, height: 16, color: Colors.pinkAccent),
-                              const SizedBox(width: 5),
-                              const Text("Seleccionado"),
-                            ],
-                          ),
-                          const SizedBox(height: 20),
-
-                          // Precios por fila
-                          const Text("Precios:", style: TextStyle(fontWeight: FontWeight.bold)),
-                          ...List.generate(rowCount, (i) {
-                            return Padding(
-                              padding: const EdgeInsets.symmetric(vertical: 2.0),
-                              child: Row(
-                                children: [
-                                  SizedBox(
-                                    width: 80,
-                                    child: Text("Fila ${String.fromCharCode(65 + i)}:"),
-                                  ),
-                                  Text("\$${rowPrices[i]}"),
-                                ],
-                              ),
-                            );
-                          }),
-                          const SizedBox(height: 10),
-
-                          // Asientos seleccionados y totales
-                          Row(
-                            children: [
-                              const SizedBox(width: 80, child: Text("Asientos:")),
-                              Text(selectedSeats.isEmpty ? "" : selectedSeats.join(", ")),
-                            ],
-                          ),
-                          Row(
-                            children: [
-                              const SizedBox(width: 80, child: Text("Subtotal:")),
-                              Text("\$${subtotal}"),
-                            ],
-                          ),
-                          Row(
-                            children: [
-                              const SizedBox(width: 80, child: Text("Total:")),
-                              Text("\$${total}"),
-                            ],
-                          ),
-                          const SizedBox(height: 15),
-                        ],
-                      ),
-                    ),
+                              )
+                            else
+                              const Spacer(),
+                        ]),
+                      const SizedBox(height: 12),
+                      const Row(children: [
+                        _LegendBox(color: Colors.purple, label: 'Ocupado'),
+                        SizedBox(width: 12),
+                        _LegendBox(color: Colors.grey, label: 'Libre'),
+                        SizedBox(width: 12),
+                        _LegendBox(color: Colors.pinkAccent, label: 'Seleccionado'),
+                      ]),
+                    ]),
                   ),
+
                   const SizedBox(height: 20),
 
-                  // Botones
-                  Wrap(
-                    spacing: 8,
-                    alignment: WrapAlignment.spaceBetween,
-                    children: [
-                      ElevatedButton.icon(
-                        onPressed: _captureAndSharePng,
-                        icon: const Icon(Icons.share, color: Colors.white, size: 18),
-                        label: const Text("Compartir", style: TextStyle(color: Colors.white)),
-                        style: ElevatedButton.styleFrom(
-                          backgroundColor: Colors.purple,
-                          shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(20),
-                          ),
-                          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                        ),
-                      ),
-                      ElevatedButton.icon(
-                        onPressed: () {
-                          // Ir a la pantalla de editar filas y columnas
-                          Navigator.push(
-                            context,
-                            MaterialPageRoute(builder: (_) => const EditarFilasColumnasScreen()),
-                          );
-                        },
-                        icon: const Icon(Icons.edit, color: Colors.white, size: 18),
-                        label: const Text("Editar sillas", style: TextStyle(color: Colors.white)),
-                        style: ElevatedButton.styleFrom(
-                          backgroundColor: Colors.purple,
-                          shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(20),
-                          ),
-                          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                        ),
-                      ),
-                      ElevatedButton.icon(
-                        onPressed: selectedSeats.isEmpty
-                            ? null
-                            : () {
-                          // Ir a la pantalla de pago
-                          Navigator.push(
-                            context,
-                            MaterialPageRoute(
-                              builder: (context) => PagoBoletosScreen(
-                                nombreCliente: "",
-                                apellidoCliente: "",
-                                asientosSeleccionados: selectedSeats,
-                                total: total,
-                              ),
-                            ),
-                          );
-                        },
-                        icon: const Icon(Icons.arrow_forward, color: Colors.white, size: 18),
-                        label: const Text("Siguiente", style: TextStyle(color: Colors.white)),
-                        style: ElevatedButton.styleFrom(
-                          backgroundColor: const Color(0xFF3D0909),
-                          shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(20),
-                          ),
-                          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                        ),
-                      ),
-                    ],
-                  ),
-                ],
+                  // precios por fila + totales
+                  const Text('Precios por fila:',
+                      style: TextStyle(fontWeight: FontWeight.bold)),
+                  const SizedBox(height: 8),
+                  for (var r = 0; r < _filas; r++)
+                    Padding(
+                      padding: const EdgeInsets.symmetric(vertical: 4),
+                      child: Text(
+                          'Fila ${String.fromCharCode(65 + r)}: \$${_precios[r]}'),
+                    ),
+
+                  const SizedBox(height: 12),
+                  Text('Asientos: ${selList.join(', ')}'),
+                  Text('Subtotal: \$$subtotal'),
+                  Text('Total: \$$total'),
+                ]),
               ),
             ),
-          );
-        },
+          ),
+          // ──────────────────────────────────
+
+          const SizedBox(height: 20),
+          Wrap(spacing: 8, children: [
+            ElevatedButton.icon(
+              onPressed: _captureAndShare,
+              icon: const Icon(Icons.share, size: 18, color: Colors.white),
+              label:
+              const Text('Compartir', style: TextStyle(color: Colors.white)),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: const Color(0xFF5A0F4D),
+              ),
+            ),
+            ElevatedButton.icon(
+              onPressed: () {
+                Navigator.push(
+                  context,
+                  MaterialPageRoute(
+                    builder: (_) => EditarFilasColumnasScreen(
+                        zoneIndex: widget.zoneIndex),
+                  ),
+                );
+              },
+              icon: const Icon(Icons.edit, size: 18),
+              label: const Text('Editar sillas'),
+            ),
+            ElevatedButton.icon(
+              onPressed: selList.isEmpty
+                  ? null
+                  : () {
+                Navigator.push(
+                  context,
+                  MaterialPageRoute(
+                    builder: (_) => PagoBoletosScreen(
+                      nombreCliente: '',
+                      apellidoCliente: '',
+                      asientosSeleccionados: selList,
+                      total: total,
+                      zona: widget.zoneIndex,
+                    ),
+                  ),
+                );
+              },
+              icon: const Icon(Icons.arrow_forward, size: 18),
+              label: const Text('Siguiente'),
+            ),
+          ]),
+        ]),
       ),
     );
   }
 }
 
+class _LegendBox extends StatelessWidget {
+  final Color color;
+  final String label;
+  const _LegendBox({required this.color, required this.label, Key? key})
+      : super(key: key);
 
-
-
-
-
-
-
+  @override
+  Widget build(BuildContext context) => Row(children: [
+    Container(width: 16, height: 16, color: color),
+    const SizedBox(width: 4),
+    Text(label),
+  ]);
+}

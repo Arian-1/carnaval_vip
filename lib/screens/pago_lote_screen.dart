@@ -1,10 +1,13 @@
-import 'package:cloud_firestore/cloud_firestore.dart';
+// lib/screens/pago_lote_screen.dart
+
 import 'package:flutter/material.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 
 import 'confirmacion_lote_screen.dart';
 
 class PagoLoteScreen extends StatefulWidget {
-  final String loteName; // "Lote 1", "Lote 2", ...
+  final String loteName;
   final int lotePrice;
 
   const PagoLoteScreen({
@@ -18,210 +21,193 @@ class PagoLoteScreen extends StatefulWidget {
 }
 
 class _PagoLoteScreenState extends State<PagoLoteScreen> {
-  final _nombreCtrl = TextEditingController();
+  final _formKey = GlobalKey<FormState>();
+  final _nombreCtrl   = TextEditingController();
   final _apellidoCtrl = TextEditingController();
-  final _abonoCtrl = TextEditingController(text: "0");
+  final _abonoCtrl    = TextEditingController(text: '0');
 
-  bool _isPagado = false;
+  bool _isPendiente = false;
 
-  int get _abono => int.tryParse(_abonoCtrl.text) ?? 0;
-  int get _total => widget.lotePrice;
-  int get _pendiente => _total - _abono;
+  int get _abono     => int.tryParse(_abonoCtrl.text) ?? 0;
+  int get _total     => widget.lotePrice;
+  int get _pendiente => _isPendiente ? (_total - _abono).clamp(0, _total) : 0;
 
   @override
-  Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(
-        title:
-        const Text("Pago de lote", style: TextStyle(color: Colors.white)),
-        backgroundColor: const Color(0xFF5E1A47),
-        centerTitle: true,
-      ),
-      body: Padding(
-        padding: const EdgeInsets.all(16.0),
-        child: Card(
-          elevation: 4,
-          child: Container(
-            padding: const EdgeInsets.all(16.0),
-            width: double.infinity,
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                const Text(
-                  "Resumen",
-                  style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
-                ),
-                const SizedBox(height: 10),
-                // Nombre del cliente
-                TextFormField(
-                  controller: _nombreCtrl,
-                  decoration: const InputDecoration(
-                    labelText: "Nombre del cliente",
-                  ),
-                ),
-                const SizedBox(height: 10),
-                // Apellido del cliente
-                TextFormField(
-                  controller: _apellidoCtrl,
-                  decoration: const InputDecoration(
-                    labelText: "Apellido del cliente",
-                  ),
-                ),
-                const SizedBox(height: 20),
-                // Info del lote y total
-                Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                  children: [
-                    const Text("Lote:"),
-                    Text(widget.loteName),
-                  ],
-                ),
-                Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                  children: [
-                    const Text("Total:"),
-                    Text("\$$_total"),
-                  ],
-                ),
-                const SizedBox(height: 10),
-                // Radio buttons: Pagado / Pendiente
-                Row(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: [
-                    Radio<bool>(
-                      value: true,
-                      groupValue: _isPagado,
-                      onChanged: (val) {
-                        setState(() {
-                          _isPagado = val ?? false;
-                          _abonoCtrl.text = _total.toString();
-                        });
-                      },
-                    ),
-                    const Text("Pagado"),
-                    const SizedBox(width: 20),
-                    Radio<bool>(
-                      value: false,
-                      groupValue: _isPagado,
-                      onChanged: (val) {
-                        setState(() {
-                          _isPagado = val ?? false;
-                          // Si se cambia a pendiente, no asignar el total automáticamente
-                          if (_abonoCtrl.text == _total.toString()) {
-                            _abonoCtrl.text = "0";
-                          }
-                        });
-                      },
-                    ),
-                    const Text("Pendiente"),
-                  ],
-                ),
-                // Abono y pendiente
-                Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                  children: [
-                    const Text("Abono:"),
-                    SizedBox(
-                      width: 80,
-                      child: TextFormField(
-                        enabled: !_isPagado, // si es pagado, abono = total
-                        controller: _abonoCtrl,
-                        keyboardType: TextInputType.number,
-                        onChanged: (val) => setState(() {}), // para recalcular
-                      ),
-                    ),
-                  ],
-                ),
-                Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                  children: [
-                    const Text("Pendiente:"),
-                    Text("\$$_pendiente"),
-                  ],
-                ),
-                const SizedBox(height: 20),
-                ElevatedButton.icon(
-                  onPressed: _asignarLote,
-                  icon: const Icon(Icons.check, color: Colors.white),
-                  label:
-                  const Text("Asignar", style: TextStyle(color: Colors.white)),
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: Colors.purple,
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(20),
-                    ),
-                    padding:
-                    const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                  ),
-                ),
-                const SizedBox(height: 10),
-                OutlinedButton.icon(
-                  onPressed: () => Navigator.pop(context),
-                  icon: const Icon(Icons.arrow_back),
-                  label: const Text("Regresar"),
-                ),
-              ],
-            ),
-          ),
-        ),
-      ),
-    );
+  void dispose() {
+    _nombreCtrl.dispose();
+    _apellidoCtrl.dispose();
+    _abonoCtrl.dispose();
+    super.dispose();
   }
 
-  /// Función para asignar el lote y guardar la reserva en la colección "reservas"
   Future<void> _asignarLote() async {
-    final nombre = _nombreCtrl.text.trim();
-    final apellido = _apellidoCtrl.text.trim();
+    if (!_formKey.currentState!.validate()) return;
 
-    if (nombre.isEmpty || apellido.isEmpty) {
-      _showSnack("Ingresa nombre y apellido.");
-      return;
-    }
-    if (_abono < 0 || _abono > _total) {
-      _showSnack("El abono no puede ser mayor que el total ni negativo.");
-      return;
-    }
+    final uid = FirebaseAuth.instance.currentUser!.uid;
+    final userRef = FirebaseFirestore.instance.collection('users').doc(uid);
 
-    // 1) Actualizar "occupiedLotes" en el documento de la sala para marcar el lote como ocupado.
-    final salaRef =
-    FirebaseFirestore.instance.collection("salas").doc("sala1");
-    final salaSnap = await salaRef.get();
-    if (!salaSnap.exists) {
-      _showSnack("No se encontró 'sala1' en la base de datos.");
-      return;
-    }
-    final salaData = salaSnap.data() as Map<String, dynamic>;
-    List<dynamic> occupiedLotes = salaData["occupiedLotes"] ?? [];
-    if (!occupiedLotes.contains(widget.loteName)) {
-      occupiedLotes.add(widget.loteName);
-      await salaRef.update({"occupiedLotes": occupiedLotes});
-    }
-
-    // 2) Crear el registro de la reserva para el lote.
-    final reserva = {
-      "lote": widget.loteName,
-      "nombre": nombre,
-      "apellido": apellido,
-      "pagado": _isPagado,
-      "abono": _abono,
-      "pendiente": _pendiente,
-      "total": _total,
-      "fecha": FieldValue.serverTimestamp(),
-      "tipo": "lote" // para identificar el tipo de reserva
+    // 1) Preparar datos de reserva
+    final reservaData = {
+      'tipo': 'lote',                  // para filtrar más tarde
+      'zona': widget.loteName.split(' ').last, // ej. "1" de "Lote 1"
+      'item': widget.loteName,
+      'nombre': _nombreCtrl.text.trim(),
+      'apellido': _apellidoCtrl.text.trim(),
+      'pagado': !_isPendiente,
+      'abono': _isPendiente ? _abono : _total,
+      'pendiente': _pendiente,
+      'total': _total,
+      'fecha': FieldValue.serverTimestamp(),
     };
 
-    // Enviar la reserva a la colección "reservas"
-    await FirebaseFirestore.instance.collection("reservas").add(reserva);
+    // 2) Guardar reserva
+    await userRef.collection('reservas').add(reservaData);
 
-    // 3) Navegar a la pantalla de confirmación
+    // 3) Ir a confirmación
     Navigator.pushReplacement(
       context,
       MaterialPageRoute(builder: (_) => const ConfirmacionLoteScreen()),
     );
   }
 
-  void _showSnack(String msg) {
-    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(msg)));
+  String? _validarNombre(String? v) {
+    if (v == null || v.trim().isEmpty) return 'Ingresa nombre';
+    return null;
+  }
+
+  String? _validarApellido(String? v) {
+    if (v == null || v.trim().isEmpty) return 'Ingresa apellido';
+    return null;
+  }
+
+  String? _validarAbono(String? v) {
+    if (!_isPendiente) return null;
+    final x = int.tryParse(v ?? '');
+    if (x == null) return 'Número inválido';
+    if (x < 0 || x > _total) return 'Debe estar entre 0 y $_total';
+    return null;
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(
+        title: const Text('Pago de lote', style: TextStyle(color: Colors.white)),
+        backgroundColor: const Color(0xFF5E1A47),
+        centerTitle: true,
+        leading: const BackButton(color: Colors.white),
+      ),
+      body: SingleChildScrollView(
+        padding: const EdgeInsets.all(16),
+        child: Form(
+          key: _formKey,
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              const Text('Resumen de pago',
+                  style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+              const SizedBox(height: 16),
+
+              // Nombre
+              TextFormField(
+                controller: _nombreCtrl,
+                decoration: const InputDecoration(labelText: 'Nombre'),
+                validator: _validarNombre,
+              ),
+              const SizedBox(height: 12),
+
+              // Apellido
+              TextFormField(
+                controller: _apellidoCtrl,
+                decoration: const InputDecoration(labelText: 'Apellido'),
+                validator: _validarApellido,
+              ),
+              const SizedBox(height: 16),
+
+              // Lote / Total
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  const Text('Lote:'),
+                  Text(widget.loteName),
+                ],
+              ),
+              const SizedBox(height: 8),
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  const Text('Total:'),
+                  Text('\$${_total}'),
+                ],
+              ),
+              const SizedBox(height: 20),
+
+              // Pagado / Pendiente
+              Row(
+                children: [
+                  const Text('Pagado'),
+                  Radio<bool>(
+                    value: false,
+                    groupValue: _isPendiente,
+                    onChanged: (v) => setState(() => _isPendiente = v!),
+                  ),
+                  const SizedBox(width: 24),
+                  const Text('Pendiente'),
+                  Radio<bool>(
+                    value: true,
+                    groupValue: _isPendiente,
+                    onChanged: (v) {
+                      setState(() => _isPendiente = v!);
+                      if (!_isPendiente) {
+                        _abonoCtrl.text = '0';
+                      }
+                    },
+                  ),
+                ],
+              ),
+              const SizedBox(height: 12),
+
+              // Abono
+              if (_isPendiente) ...[
+                TextFormField(
+                  controller: _abonoCtrl,
+                  keyboardType: TextInputType.number,
+                  decoration: const InputDecoration(labelText: 'Abono'),
+                  validator: _validarAbono,
+                  onChanged: (_) => setState(() {}),
+                ),
+                const SizedBox(height: 8),
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    const Text('Pendiente:'),
+                    Text('\$${_pendiente}'),
+                  ],
+                ),
+                const SizedBox(height: 16),
+              ],
+
+              // Botones
+              ElevatedButton.icon(
+                onPressed: _asignarLote,
+                icon: const Icon(Icons.check, color: Colors.white),
+                label: const Text('Confirmar'),
+                style: ElevatedButton.styleFrom(
+                  foregroundColor: Colors.white,
+                  backgroundColor: Colors.purple,
+                  padding: const EdgeInsets.symmetric(vertical: 12),
+                ),
+              ),
+              const SizedBox(height: 8),
+              OutlinedButton.icon(
+                onPressed: () => Navigator.pop(context),
+                icon: const Icon(Icons.arrow_back),
+                label: const Text('Regresar'),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
   }
 }
-

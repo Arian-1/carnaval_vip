@@ -1,289 +1,296 @@
+// lib/screens/asignar_lote_screen.dart
+
 import 'dart:io';
 import 'dart:typed_data';
 import 'dart:ui' as ui;
-import 'package:cloud_firestore/cloud_firestore.dart';
+
 import 'package:flutter/material.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/rendering.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:share_plus/share_plus.dart';
-
-import 'pago_lote_screen.dart';
 import 'editar_lotes_screen.dart';
 
-enum LoteState { libre, seleccionado, ocupado }
+import 'pago_lote_screen.dart';
 
 class AsignarLoteScreen extends StatefulWidget {
-  const AsignarLoteScreen({Key? key}) : super(key: key);
+  final int zoneIndex;
+  const AsignarLoteScreen({Key? key, required this.zoneIndex})
+      : super(key: key);
 
   @override
   State<AsignarLoteScreen> createState() => _AsignarLoteScreenState();
 }
 
 class _AsignarLoteScreenState extends State<AsignarLoteScreen> {
-  final GlobalKey _repaintKey = GlobalKey();
+  bool _loading = true;
+  String? _error;
 
-  // Lógica local de lotes
-  List<LoteState> _lotes = [];
-  int _loteCount = 0;
-  int _lotePrice = 500; // por defecto
-  bool _isLoading = true;
-  String? _errorMsg;
+  int _count = 0;
+  int? _price;
+  late List<bool> _occupied;
+  late List<bool> _selected;
+
+  final GlobalKey _repaintKey = GlobalKey();
 
   @override
   void initState() {
     super.initState();
-    _fetchData();
+    _loadConfig();
   }
 
-  /// Carga la información de Firestore: loteCount, lotePrice, occupiedLotes
-  Future<void> _fetchData() async {
+  Future<void> _loadConfig() async {
     try {
-      final doc = await FirebaseFirestore.instance
-          .collection("salas")
-          .doc("sala1")
+      final uid     = FirebaseAuth.instance.currentUser!.uid;
+      final userRef = FirebaseFirestore.instance.collection('users').doc(uid);
+
+      // 1) ¿Cuántos lotes hay en esta zona?
+      final lotesSnap = await userRef.collection('config').doc('lotes').get();
+      final lotesData = lotesSnap.data() as Map<String,dynamic>? ?? {};
+      final counts    = List<int>.from(lotesData['counts'] ?? []);
+      _count = widget.zoneIndex < counts.length
+          ? counts[widget.zoneIndex]
+          : 1;
+
+      // 2) Precio guardado (si existe)
+      final priceSnap = await userRef
+          .collection('config')
+          .doc('prices')
+          .collection('lotes')
+          .doc('zona_${widget.zoneIndex + 1}')
           .get();
-      if (doc.exists) {
-        final data = doc.data() as Map<String, dynamic>;
-        setState(() {
-          _loteCount = data["loteCount"] ?? 3;
-          _lotePrice = data["lotePrice"] ?? 500;
-          // Inicializamos los lotes en "libre"
-          _lotes = List.generate(_loteCount, (_) => LoteState.libre);
-          // Marcamos como ocupados los que aparecen en occupiedLotes
-          List<dynamic> occupiedList = data["occupiedLotes"] ?? [];
-          for (var item in occupiedList) {
-            if (item is String) {
-              // Ej: "Lote 2"
-              final numStr = item.replaceAll("Lote ", "");
-              final index = int.tryParse(numStr);
-              if (index != null && index > 0 && index <= _loteCount) {
-                _lotes[index - 1] = LoteState.ocupado;
-              }
-            }
-          }
-          _isLoading = false;
-        });
-      } else {
-        setState(() {
-          _errorMsg = "No se encontró el documento 'sala1' en Firestore.";
-          _isLoading = false;
-        });
+      if (priceSnap.exists) {
+        final p = priceSnap.data()!['precio'];
+        if (p is num) _price = p.toInt();
       }
+
+      // 3) ¿Cuáles ya están reservados? (colección reservas)
+      final resSnap = await userRef
+          .collection('reservas')
+          .where('tipo', isEqualTo: 'lote')
+          .get();
+      final ocupados = resSnap.docs
+          .map((d) => d.data())
+          .where((m) =>
+      m['zona'].toString() == (widget.zoneIndex + 1).toString())
+          .map((m) => m['item'] as String)
+          .toSet();
+
+      _occupied = List<bool>.generate(
+        _count,
+            (i) => ocupados.contains('Lote ${i + 1}'),
+      );
+
+      // 4) estado de selección inicial (todos false)
+      _selected = List<bool>.filled(_count, false);
+
+      setState(() => _loading = false);
     } catch (e) {
       setState(() {
-        _errorMsg = "Error cargando datos: $e";
-        _isLoading = false;
+        _error   = e.toString();
+        _loading = false;
       });
     }
   }
 
-  /// Alterna un lote si no está ocupado
-  void _toggleLote(int index) {
-    setState(() {
-      if (_lotes[index] == LoteState.ocupado) return;
-      if (_lotes[index] == LoteState.libre) {
-        _lotes[index] = LoteState.seleccionado;
-      } else if (_lotes[index] == LoteState.seleccionado) {
-        _lotes[index] = LoteState.libre;
-      }
-    });
-  }
-
-  Color _getColor(LoteState state) {
-    switch (state) {
-      case LoteState.libre:
-        return Colors.grey;
-      case LoteState.seleccionado:
-        return Colors.pink;
-      case LoteState.ocupado:
-        return Colors.purple;
-    }
-  }
-
-  /// Captura el croquis y lo comparte
-  Future<void> _captureAndShare() async {
-    try {
-      final boundary = _repaintKey.currentContext?.findRenderObject()
-      as RenderRepaintBoundary?;
-      if (boundary == null) return;
-      final image = await boundary.toImage(pixelRatio: 2.0);
-      final byteData = await image.toByteData(format: ui.ImageByteFormat.png);
-      if (byteData != null) {
-        final pngBytes = byteData.buffer.asUint8List();
-        final tempDir = await getTemporaryDirectory();
-        final file = await File('${tempDir.path}/lote_map.png').create();
-        await file.writeAsBytes(pngBytes);
-        await Share.shareXFiles([XFile(file.path)], text: '¡Mira mis lotes!');
-      }
-    } catch (e) {
-      print("Error al compartir: $e");
-    }
-  }
-
-  /// Al presionar "Siguiente", si hay exactamente 1 lote seleccionado, vamos a la pantalla de pago
-  void _goToPago() {
-    final selectedIndices = <int>[];
-    for (int i = 0; i < _lotes.length; i++) {
-      if (_lotes[i] == LoteState.seleccionado) {
-        selectedIndices.add(i);
-      }
-    }
-
-    if (selectedIndices.isEmpty) {
-      _showSnack("Selecciona al menos un lote para continuar.");
-      return;
-    }
-    if (selectedIndices.length > 1) {
-      _showSnack("Solo puedes apartar 1 lote a la vez.");
-      return;
-    }
-
-    // Navegar a la pantalla de pago con la info del lote
-    final index = selectedIndices.first;
-    final loteName = "Lote ${index + 1}";
-    Navigator.push(
-      context,
-      MaterialPageRoute(
-        builder: (_) => PagoLoteScreen(
-          loteName: loteName,
-          lotePrice: _lotePrice,
+  Future<void> _promptForPrecio() async {
+    final ctrl = TextEditingController(text: (_price ?? 0).toString());
+    await showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: Text('Precio zona ${widget.zoneIndex + 1}'),
+        content: TextField(
+          controller: ctrl,
+          keyboardType: TextInputType.number,
+          decoration: const InputDecoration(prefixText: '\$'),
         ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx),
+              child: const Text('Cancelar')),
+          ElevatedButton(
+            onPressed: () async {
+              final v = int.tryParse(ctrl.text) ?? 0;
+              final uid = FirebaseAuth.instance.currentUser!.uid;
+              await FirebaseFirestore.instance
+                  .collection('users').doc(uid)
+                  .collection('config').doc('prices')
+                  .collection('lotes').doc('zona_${widget.zoneIndex + 1}')
+                  .set({'precio': v});
+              setState(() => _price = v);
+              Navigator.pop(ctx);
+            },
+            child: const Text('Guardar'),
+          ),
+        ],
       ),
     );
   }
 
-  void _showSnack(String msg) {
-    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(msg)));
+  void _toggle(int i) {
+    if (_occupied[i]) return; // no permitimos desocupar
+    setState(() => _selected[i] = !_selected[i]);
+  }
+
+  Future<void> _captureAndShare() async {
+    final boundary = _repaintKey.currentContext!
+        .findRenderObject() as RenderRepaintBoundary;
+    final image    = await boundary.toImage(pixelRatio: 2.0);
+    final bytes    = (await image.toByteData(
+        format: ui.ImageByteFormat.png))!
+        .buffer.asUint8List();
+    final dir      = await getTemporaryDirectory();
+    final file     = await File('${dir.path}/lotes.png').create();
+    await file.writeAsBytes(bytes);
+    await Share.shareXFiles([XFile(file.path)], text: '¡Mira mis lotes y precios!');
   }
 
   @override
   Widget build(BuildContext context) {
+    if (_loading) {
+      return const Scaffold(body: Center(child: CircularProgressIndicator()));
+    }
+    if (_error != null) {
+      return Scaffold(body: Center(child: Text('Error: $_error')));
+    }
+    if (_price == null) {
+      WidgetsBinding.instance.addPostFrameCallback((_) => _promptForPrecio());
+      return const Scaffold(body: Center(child: CircularProgressIndicator()));
+    }
+
+    final freeColor = Colors.grey.shade400;
+
     return Scaffold(
       appBar: AppBar(
-        title: const Text("Asignar lote", style: TextStyle(color: Colors.white)),
-        backgroundColor: const Color(0xFF5E1A47),
-        centerTitle: true,
+        title: Text('Lotes zona ${widget.zoneIndex + 1}'),
+        backgroundColor: const Color(0xFF5A0F4D),
+        leading: const BackButton(color: Colors.white),
       ),
-      body: _isLoading
-          ? const Center(child: CircularProgressIndicator())
-          : _errorMsg != null
-          ? Center(child: Text(_errorMsg!))
-          : Padding(
+      body: SingleChildScrollView(
         padding: const EdgeInsets.all(16),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            const Text(
-              "Escoge el lote.",
-              style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
-            ),
-            const SizedBox(height: 16),
-            // Croquis con RepaintBoundary
             RepaintBoundary(
               key: _repaintKey,
               child: Container(
-                width: double.infinity,
-                decoration: BoxDecoration(
-                  color: Colors.white,
-                  borderRadius: BorderRadius.circular(8),
-                ),
+                color: Colors.white, // fondo blanco en la imagen
                 child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    const SizedBox(height: 16),
                     const Text(
-                      "Carnaval",
-                      style: TextStyle(
-                        fontSize: 20,
-                        fontWeight: FontWeight.bold,
-                      ),
+                      'Escoge el lote.',
+                      style:
+                      TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
                     ),
                     const SizedBox(height: 8),
-                    Text(
-                      "Precio: \$$_lotePrice",
-                      style: const TextStyle(fontSize: 16),
-                    ),
-                    const SizedBox(height: 16),
-                    // Muestra todos los lotes en una fila
-                    SingleChildScrollView(
-                      scrollDirection: Axis.horizontal,
-                      child: Row(
-                        mainAxisAlignment: MainAxisAlignment.center,
-                        children: List.generate(
-                          _loteCount,
-                              (index) => GestureDetector(
-                            onTap: () => _toggleLote(index),
+
+                    // Precio (solo una vez)
+                    Text('Precio: \$$_price',
+                        style: Theme.of(context).textTheme.titleMedium),
+                    const SizedBox(height: 12),
+
+                    // Croquis horizontal
+                    SizedBox(
+                      height: 200,
+                      child: ListView.builder(
+                        scrollDirection: Axis.horizontal,
+                        itemCount: _count,
+                        itemBuilder: (_, i) {
+                          final isOcc = _occupied[i];
+                          final isSel = _selected[i];
+                          final bg = isOcc
+                              ? Colors.purple
+                              : isSel
+                              ? Colors.pinkAccent
+                              : freeColor;
+                          return GestureDetector(
+                            onTap: () => _toggle(i),
                             child: Container(
-                              width: 80,
-                              height: 150,
-                              margin: const EdgeInsets.symmetric(
-                                  horizontal: 5),
-                              color: _getColor(_lotes[index]),
+                              width: 100,
+                              margin:
+                              const EdgeInsets.symmetric(horizontal: 8),
+                              decoration: BoxDecoration(
+                                color: bg,
+                                border: Border.all(color: Colors.black26),
+                                borderRadius: BorderRadius.circular(8),
+                              ),
                               child: Center(
-                                child: Text(
-                                  "Lote ${index + 1}",
-                                  style: const TextStyle(
-                                    color: Colors.white,
-                                    fontWeight: FontWeight.bold,
+                                child: RotatedBox(
+                                  quarterTurns: 3,
+                                  child: Text(
+                                    'Lote ${i + 1}',
+                                    style: TextStyle(
+                                      color: (isOcc || isSel)
+                                          ? Colors.white
+                                          : Colors.black87,
+                                      fontWeight: FontWeight.bold,
+                                    ),
                                   ),
                                 ),
                               ),
                             ),
-                          ),
-                        ),
+                          );
+                        },
                       ),
                     ),
-                    const SizedBox(height: 16),
+
+                    const SizedBox(height: 12),
+                    // Leyenda
+                    Row(children: [
+                      _LegendBox(color: Colors.purple, label: 'Ocupado'),
+                      const SizedBox(width: 16),
+                      _LegendBox(color: freeColor, label: 'Libre'),
+                      const SizedBox(width: 16),
+                      _LegendBox(color: Colors.pinkAccent, label: 'Seleccionado'),
+                    ]),
                   ],
                 ),
               ),
             ),
+
             const SizedBox(height: 20),
-            // Leyenda
-            Row(
-              mainAxisAlignment: MainAxisAlignment.center,
+            // Botones (no se incluyen en la imagen)
+            Wrap(
+              spacing: 8,
+              runSpacing: 8,
               children: [
-                _buildLegendCircle(Colors.purple, "Ocupado"),
-                const SizedBox(width: 20),
-                _buildLegendCircle(Colors.grey, "Libre"),
-                const SizedBox(width: 20),
-                _buildLegendCircle(Colors.pink, "Seleccionado"),
-              ],
-            ),
-            const SizedBox(height: 20),
-            // Botones
-            Row(
-              mainAxisAlignment: MainAxisAlignment.spaceAround,
-              children: [
-                ElevatedButton(
+                ElevatedButton.icon(
                   onPressed: _captureAndShare,
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: Colors.purple,
-                    foregroundColor: Colors.white,
-                  ),
-                  child: const Text("Compartir"),
+                  icon: const Icon(Icons.share),
+                  label: const Text('Compartir'),
                 ),
-                ElevatedButton(
+                ElevatedButton.icon(
                   onPressed: () {
                     Navigator.push(
                       context,
                       MaterialPageRoute(
-                        builder: (_) => const EditarLotesScreen(),
+                        builder: (_) => EditarLotesScreen(
+                          zoneIndex: widget.zoneIndex,
+                        ),
                       ),
                     );
                   },
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: Colors.purple,
-                    foregroundColor: Colors.white,
-                  ),
-                  child: const Text("Editar lotes"),
+                  icon: const Icon(Icons.edit),
+                  label: const Text('Editar lotes'),
                 ),
-                ElevatedButton(
-                  onPressed: _goToPago,
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: Colors.purple,
-                    foregroundColor: Colors.white,
-                  ),
-                  child: const Text("Siguiente"),
+                ElevatedButton.icon(
+                  onPressed: _selected.every((s) => !s)
+                      ? null
+                      : () {
+                    final idx = _selected.indexWhere((s) => s) + 1;
+                    Navigator.push(
+                      context,
+                      MaterialPageRoute(
+                        builder: (_) => PagoLoteScreen(
+                          loteName: 'Lote $idx',
+                          lotePrice: _price!,
+                        ),
+                      ),
+                    );
+                  },
+                  icon: const Icon(Icons.arrow_forward),
+                  label: const Text('Siguiente'),
                 ),
               ],
             ),
@@ -292,20 +299,18 @@ class _AsignarLoteScreenState extends State<AsignarLoteScreen> {
       ),
     );
   }
-
-  Widget _buildLegendCircle(Color color, String text) {
-    return Row(
-      children: [
-        Container(
-          width: 16,
-          height: 16,
-          decoration: BoxDecoration(color: color, shape: BoxShape.circle),
-        ),
-        const SizedBox(width: 5),
-        Text(text),
-      ],
-    );
-  }
 }
 
+class _LegendBox extends StatelessWidget {
+  final Color color;
+  final String label;
+  const _LegendBox({required this.color, required this.label, Key? key})
+      : super(key: key);
 
+  @override
+  Widget build(BuildContext context) => Row(children: [
+    Container(width: 16, height: 16, color: color),
+    const SizedBox(width: 4),
+    Text(label),
+  ]);
+}

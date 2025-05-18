@@ -1,224 +1,260 @@
+// lib/screens/editar_filas_columnas_screen.dart
+
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
-
-import 'editar_precios_screen.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 
 class EditarFilasColumnasScreen extends StatefulWidget {
-  const EditarFilasColumnasScreen({Key? key}) : super(key: key);
+  final int zoneIndex;
+  const EditarFilasColumnasScreen({Key? key, required this.zoneIndex})
+      : super(key: key);
 
   @override
-  State<EditarFilasColumnasScreen> createState() => _EditarFilasColumnasScreenState();
+  State<EditarFilasColumnasScreen> createState() =>
+      _EditarFilasColumnasScreenState();
 }
 
-class _EditarFilasColumnasScreenState extends State<EditarFilasColumnasScreen> {
-  int _tempRowCount = 1;
-  int _tempColCount = 1;
-  Set<String> _occupiedSeats = {};
+class _EditarFilasColumnasScreenState
+    extends State<EditarFilasColumnasScreen> {
+  bool _loading = true;
+  String? _error;
+
+  late int _tempSeatCount;
+  late int _tempRowCount;
+  late int _tempColCount;
+  final List<TextEditingController> _priceCtrls = [];
 
   @override
   void initState() {
     super.initState();
-    _cargarDatosIniciales();
+    _loadInitial();
   }
 
-  /// Carga los valores iniciales de Firestore (rowCount, colCount, occupiedSeats).
-  Future<void> _cargarDatosIniciales() async {
-    final doc = await FirebaseFirestore.instance
-        .collection('salas')
-        .doc('sala1')
-        .get();
+  @override
+  void dispose() {
+    for (var c in _priceCtrls) c.dispose();
+    super.dispose();
+  }
 
-    if (doc.exists) {
-      final data = doc.data() as Map<String, dynamic>;
+  Future<void> _loadInitial() async {
+    try {
+      final uid     = FirebaseAuth.instance.currentUser!.uid;
+      final userRef = FirebaseFirestore.instance.collection('users').doc(uid);
+
+      final doc = await userRef.collection('config').doc('sillas').get();
+      final data = doc.data()!;
+      final counts = List<int>.from(data['counts'] ?? []);
+      final rows   = List<int>.from(data['rows']   ?? []);
+      final cols   = List<int>.from(data['cols']   ?? []);
+
+      final zi = widget.zoneIndex;
+      _tempSeatCount = (zi < counts.length) ? counts[zi] : 0;
+      _tempRowCount  = (zi < rows.length)   ? rows[zi]   : 1;
+      _tempColCount  = (zi < cols.length)   ? cols[zi]   : 1;
+
+      // precios
+      final pdoc = await userRef
+          .collection('config')
+          .doc('prices')
+          .collection('sillas')
+          .doc('zona_${zi+1}')
+          .get();
+      final raw = pdoc.exists
+          ? List<dynamic>.from(pdoc.data()!['filaPrecios'] ?? [])
+          : <dynamic>[];
+
+      _priceCtrls.clear();
+      for (var r = 0; r < _tempRowCount; r++) {
+        final v = (r < raw.length && raw[r] is int) ? raw[r] as int : 0;
+        _priceCtrls.add(TextEditingController(text: v.toString()));
+      }
+
+      setState(() => _loading = false);
+    } catch (e) {
       setState(() {
-        _tempRowCount = data['rowCount'] ?? 3;
-        _tempColCount = data['colCount'] ?? 10;
-        List<dynamic> occupiedList = data['occupiedSeats'] ?? [];
-        _occupiedSeats = occupiedList.map((e) => e.toString()).toSet();
+        _error = e.toString();
+        _loading = false;
       });
     }
   }
 
-  /// Convierte 'A5' en (rowIndex=0, colIndex=4). Retorna null si es inválido.
-  Map<String, int>? _parseSeatIdSafe(String seatId) {
-    if (seatId.length < 2) return null;
-    try {
-      final letter = seatId[0];
-      final seatNumberStr = seatId.substring(1);
-      final rowIndex = letter.codeUnitAt(0) - 'A'.codeUnitAt(0);
-      final colIndex = int.parse(seatNumberStr) - 1;
-      return {'rowIndex': rowIndex, 'colIndex': colIndex};
-    } catch (_) {
-      return null;
+  void _syncCtrls() {
+    while (_priceCtrls.length < _tempRowCount) {
+      _priceCtrls.add(TextEditingController(text: '0'));
+    }
+    while (_priceCtrls.length > _tempRowCount) {
+      _priceCtrls.removeLast().dispose();
     }
   }
 
-  /// Verifica si podemos decrementar el número de filas.
-  bool _canDecrementRows() {
-    if (_tempRowCount <= 1) return false;
-    final newCount = _tempRowCount - 1;
-
-    for (var seat in _occupiedSeats) {
-      final info = _parseSeatIdSafe(seat);
-      if (info == null) {
-        // Si el seatId es inválido, lo ignoramos.
-        continue;
-      }
-      // Si este asiento está fuera del rango actual, lo ignoramos.
-      // (Por ejemplo, rowIndex=10 pero _tempRowCount=3 => es un seat "fantasma")
-      if (info['rowIndex']! >= _tempRowCount) {
-        continue;
-      }
-      // Ahora, si el asiento está dentro de la fila que queremos eliminar,
-      // no podemos reducir.
-      if (info['rowIndex']! >= newCount) {
-        return false;
-      }
+  Future<void> _save() async {
+    if (_tempSeatCount > _tempRowCount * _tempColCount) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text(
+              'El total de sillas no puede exceder filas × columnas.'),
+        ),
+      );
+      return;
     }
-    return true;
-  }
 
-  /// Verifica si podemos decrementar el número de columnas.
-  bool _canDecrementCols() {
-    if (_tempColCount <= 1) return false;
-    final newCount = _tempColCount - 1;
+    final uid     = FirebaseAuth.instance.currentUser!.uid;
+    final userRef = FirebaseFirestore.instance.collection('users').doc(uid);
 
-    for (var seat in _occupiedSeats) {
-      final info = _parseSeatIdSafe(seat);
-      if (info == null) {
-        continue;
-      }
-      // Si este asiento está fuera del rango actual de columnas, lo ignoramos.
-      if (info['colIndex']! >= _tempColCount) {
-        continue;
-      }
-      // Si el asiento está en la columna que se eliminaría, no podemos reducir.
-      if (info['colIndex']! >= newCount) {
-        return false;
-      }
-    }
-    return true;
-  }
+    // leo arrays
+    final doc    = await userRef.collection('config').doc('sillas').get();
+    final data   = doc.data()!;
+    final counts = List<int>.from(data['counts'] ?? []);
+    final rows   = List<int>.from(data['rows']   ?? []);
+    final cols   = List<int>.from(data['cols']   ?? []);
 
-  Future<void> _guardarFilasColumnas() async {
-    // Guardar en Firestore los nuevos valores
-    await FirebaseFirestore.instance.collection('salas').doc('sala1').update({
-      'rowCount': _tempRowCount,
-      'colCount': _tempColCount,
-    });
+    final zi = widget.zoneIndex;
+    while (counts.length <= zi) counts.add(0);
+    while (rows.length   <= zi) rows.add(1);
+    while (cols.length   <= zi) cols.add(1);
 
-    // Navegar a la pantalla de edición de precios
-    Navigator.push(
-      context,
-      MaterialPageRoute(builder: (_) => const EditarPreciosScreen()),
-    );
+    counts[zi] = _tempSeatCount;
+    rows[zi]   = _tempRowCount;
+    cols[zi]   = _tempColCount;
+
+    // guardo merge para no pisar otras zonas
+    await userRef.collection('config').doc('sillas').set({
+      'counts': counts,
+      'rows':   rows,
+      'cols':   cols,
+    }, SetOptions(merge: true));
+
+    // precios por fila
+    _syncCtrls();
+    final precios = _priceCtrls.map((c) => int.tryParse(c.text) ?? 0).toList();
+    await userRef
+        .collection('config')
+        .doc('prices')
+        .collection('sillas')
+        .doc('zona_${zi+1}')
+        .set({ 'filaPrecios': precios });
+
+    Navigator.pop(context);
   }
 
   @override
   Widget build(BuildContext context) {
+    if (_loading) {
+      return const Scaffold(body: Center(child: CircularProgressIndicator()));
+    }
+    if (_error != null) {
+      return Scaffold(body: Center(child: Text('Error: $_error')));
+    }
+
+    _syncCtrls();
+
     return Scaffold(
       appBar: AppBar(
-        title: const Text("CARNAVAL VIP", style: TextStyle(color: Colors.white)),
-        centerTitle: true,
+        foregroundColor: Colors.white,
+        title: Text('Editar sillas zona ${widget.zoneIndex + 1}'),
         backgroundColor: const Color(0xFF5A0F4D),
+
+        centerTitle: true,
       ),
-      body: Center(
+      body: SingleChildScrollView(
+        padding: const EdgeInsets.all(16),
         child: Card(
           elevation: 4,
-          margin: const EdgeInsets.all(16.0),
-          child: Container(
-            padding: const EdgeInsets.all(16.0),
-            width: 300,
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                const Text("Editar sillas en tarima",
-                    style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
-                const SizedBox(height: 20),
-                Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                  children: [
-                    const Text("Número de filas:"),
-                    Row(
-                      children: [
-                        IconButton(
-                          onPressed: () {
-                            if (_canDecrementRows()) {
-                              setState(() {
-                                _tempRowCount--;
-                              });
-                            }
-                          },
-                          icon: const Icon(Icons.remove_circle_outline),
-                        ),
-                        Text("$_tempRowCount"),
-                        IconButton(
-                          onPressed: () {
-                            setState(() {
-                              _tempRowCount++;
-                            });
-                          },
-                          icon: const Icon(Icons.add_circle_outline),
-                        ),
-                      ],
-                    )
-                  ],
-                ),
-                const SizedBox(height: 10),
-                Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                  children: [
-                    const Text("Número de columnas:"),
-                    Row(
-                      children: [
-                        IconButton(
-                          onPressed: () {
-                            if (_canDecrementCols()) {
-                              setState(() {
-                                _tempColCount--;
-                              });
-                            }
-                          },
-                          icon: const Icon(Icons.remove_circle_outline),
-                        ),
-                        Text("$_tempColCount"),
-                        IconButton(
-                          onPressed: () {
-                            setState(() {
-                              _tempColCount++;
-                            });
-                          },
-                          icon: const Icon(Icons.add_circle_outline),
-                        ),
-                      ],
-                    )
-                  ],
-                ),
-                const SizedBox(height: 20),
-                ElevatedButton.icon(
-                  onPressed: _guardarFilasColumnas,
-                  icon: const Icon(Icons.edit, color: Colors.white, size: 18),
-                  label: const Text("Editar", style: TextStyle(color: Colors.white)),
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: Colors.purple,
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(20),
+          shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(8)),
+          child: Padding(
+            padding: const EdgeInsets.all(16),
+            child: Column(children: [
+              _buildCounterRow(
+                  'Número de sillas', _tempSeatCount,
+                      () => setState(() => _tempSeatCount++),
+                      () { if (_tempSeatCount>1) setState(() => _tempSeatCount--); }
+              ),
+              const SizedBox(height: 16),
+              _buildCounterRow(
+                  'Número de filas', _tempRowCount,
+                      () => setState(() {
+                    _tempRowCount++;
+                    _syncCtrls();
+                  }),
+                      () { if (_tempRowCount>1) setState(() {
+                    _tempRowCount--;
+                    _syncCtrls();
+                  }); }
+              ),
+              const SizedBox(height: 16),
+              _buildCounterRow(
+                  'Número de columnas', _tempColCount,
+                      () => setState(() => _tempColCount++),
+                      () { if (_tempColCount>1) setState(() => _tempColCount--); }
+              ),
+
+              const Divider(height: 32),
+
+              Align(
+                alignment: Alignment.centerLeft,
+                child: Text('Asignar precios:',
+                    style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+              ),
+              const SizedBox(height: 8),
+              for (var r = 0; r < _tempRowCount; r++)
+                Padding(
+                  padding: const EdgeInsets.symmetric(vertical: 8),
+                  child: TextField(
+                    controller: _priceCtrls[r],
+                    keyboardType: TextInputType.number,
+                    decoration: InputDecoration(
+                      labelText: 'Fila ${String.fromCharCode(65 + r)}',
+                      prefixText: '\$',
+                      border: const UnderlineInputBorder(),
                     ),
-                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
                   ),
                 ),
-                const SizedBox(height: 10),
-                OutlinedButton.icon(
-                  onPressed: () => Navigator.pop(context),
-                  icon: const Icon(Icons.arrow_back),
-                  label: const Text("Regresar"),
-                )
-              ],
-            ),
+
+              const SizedBox(height: 24),
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  OutlinedButton.icon(
+                    onPressed: () => Navigator.pop(context),
+                    icon: const Icon(Icons.arrow_back),
+                    label: const Text('Regresar'),
+                  ),
+                  ElevatedButton.icon(
+                    onPressed: _save,
+                    icon: const Icon(Icons.save, color: Colors.white),
+                    label: const Text('Guardar',  style: TextStyle(color: Colors.white)),
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: const Color(0xFF5A0F4D),
+                    ),
+                  ),
+                ],
+              ),
+            ]),
           ),
         ),
       ),
     );
   }
+
+  Widget _buildCounterRow(
+      String label,
+      int value,
+      VoidCallback onInc,
+      VoidCallback onDec,
+      ) {
+    return Row(
+      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+      children: [
+        Text(label),
+        Row(children: [
+          IconButton(icon: const Icon(Icons.remove_circle_outline), onPressed: onDec),
+          SizedBox(width: 40, child: Center(child: Text('$value'))),
+          IconButton(icon: const Icon(Icons.add_circle_outline), onPressed: onInc),
+        ]),
+      ],
+    );
+  }
 }
+
 

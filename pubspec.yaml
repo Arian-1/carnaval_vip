@@ -40,6 +40,9 @@ dependencies:
   share_plus: ^10.1.4
   path_provider: ^2.0.14
   intl: ^0.17.0
+  pdf: ^3.10.0
+  printing: ^5.10.0
+
 
 
 dev_dependencies:
