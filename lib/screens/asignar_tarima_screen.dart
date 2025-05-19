@@ -3,6 +3,7 @@
 import 'dart:io';
 import 'dart:typed_data';
 import 'dart:ui' as ui;
+import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
@@ -82,7 +83,7 @@ class _AsignarTarimaScreenState extends State<AsignarTarimaScreen> {
         _count = widget.zoneIndex < countsArr.length ? countsArr[widget.zoneIndex] : 1;
       }
 
-      // 3) IDs de tarima estilo “A1”, “A2”, … “B1”, …, hasta _count
+      // 3) IDs de tarima estilo "A1", "A2", … "B1", …, hasta _count
       _tarimaIds = List.generate(_rows * _cols, (i) {
         final r = i ~/ _cols;  // fila 0,1,2…
         final c = i %  _cols;  // col 0,1,2…
@@ -128,7 +129,7 @@ class _AsignarTarimaScreenState extends State<AsignarTarimaScreen> {
       setState(() => _loading = false);
     } catch (e) {
       setState(() {
-        _error   = e.toString();
+        _error = e.toString();
         _loading = false;
       });
     }
@@ -182,6 +183,88 @@ class _AsignarTarimaScreenState extends State<AsignarTarimaScreen> {
     await Share.shareXFiles([XFile(file.path)], text: '¡Mira mis tarimas y precios!');
   }
 
+  // Widget para construir el grid de tarimas con numeración completa
+  Widget _buildTarimaGrid() {
+    // Calcula el tamaño basado en el número de filas y columnas
+    final maxElements = math.max(_rows, _cols);
+    final double circleSize = maxElements > 10 ? 25.0 : 30.0; // Más pequeño si hay muchos elementos
+    final double spacing = circleSize > 25 ? 8.0 : 6.0; // Espaciado proporcional
+    final freeColor = Colors.grey.shade400;
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      mainAxisSize: MainAxisSize.min, // Importante para evitar expandir verticalmente
+      children: [
+        // Cabezal gris - Ancho total del grid
+        Container(
+            width: (_cols * (circleSize + spacing)) + 40, // Ancho total que abarca todas las columnas
+            height: 20,
+            color: Colors.grey.shade300
+        ),
+        const SizedBox(height: 12),
+
+        // Numeración completa para todas las columnas
+        Row(
+          mainAxisSize: MainAxisSize.min, // Evita expansión horizontal
+          children: [
+            const SizedBox(width: 40), // Espacio para letras de fila
+            for (var c = 0; c < _cols; c++)
+              Container(
+                width: circleSize + spacing,
+                alignment: Alignment.center,
+                child: Text(
+                  '${c + 1}',
+                  style: const TextStyle(fontSize: 14),
+                ),
+              ),
+          ],
+        ),
+        const SizedBox(height: 8),
+
+        // Filas de círculos
+        for (var r = 0; r < _rows; r++)
+          Row(
+            mainAxisSize: MainAxisSize.min, // Evita expansión horizontal
+            children: [
+              // Letra de fila
+              Container(
+                width: 40,
+                height: circleSize + spacing,
+                alignment: Alignment.center,
+                child: Text(
+                  String.fromCharCode(65 + r),
+                  style: const TextStyle(fontWeight: FontWeight.bold),
+                ),
+              ),
+              // Círculos de tarimas
+              for (var c = 0; c < _cols; c++)
+                if (r * _cols + c < _count)
+                  Container(
+                    width: circleSize,
+                    height: circleSize,
+                    margin: EdgeInsets.all(spacing / 2),
+                    decoration: BoxDecoration(
+                      shape: BoxShape.circle,
+                      color: _occMatrix[r][c]
+                          ? Colors.purple
+                          : (_selMatrix[r][c]
+                          ? Colors.pinkAccent
+                          : freeColor),
+                      border: Border.all(color: Colors.black, width: 1),
+                    ),
+                    child: InkWell(
+                      onTap: () => _toggle(r, c),
+                      borderRadius: BorderRadius.circular(50),
+                    ),
+                  )
+                else
+                  SizedBox(width: circleSize + spacing),
+            ],
+          ),
+      ],
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     if (_loading) return const Scaffold(body: Center(child: CircularProgressIndicator()));
@@ -199,6 +282,9 @@ class _AsignarTarimaScreenState extends State<AsignarTarimaScreen> {
         if (idx < _count && _selMatrix[r][c]) selList.add(_tarimaIds[idx]);
       }
     }
+
+    // Calcula la altura ideal para el contenedor basado en el número de filas
+    final double containerHeight = math.min(400, math.max(300, _rows * 40.0));
 
     return Scaffold(
       appBar: AppBar(
@@ -219,71 +305,42 @@ class _AsignarTarimaScreenState extends State<AsignarTarimaScreen> {
             child: Container(
               color: Colors.white,
               padding: const EdgeInsets.all(16),
-              child: Column(children: [
-                // Precio dentro de la imagen
-                Text('Precio: \$$_price',
-                    style: Theme.of(context).textTheme.titleMedium),
-                const SizedBox(height: 12),
+              child: Column(
+                  mainAxisSize: MainAxisSize.min, // Importante para evitar expansión vertical
+                  children: [
+                    // Precio dentro de la imagen
+                    Text('Precio: \$$_price',
+                        style: Theme.of(context).textTheme.titleMedium),
+                    const SizedBox(height: 12),
 
-                // “Escenario”
-                Container(height: 20, color: Colors.grey.shade300),
-                const SizedBox(height: 12),
-
-                // Numeración columnas
-                Row(children: [
-                  const SizedBox(width: 24),
-                  for (var c = 0; c < _cols; c++)
-                    Expanded(child: Center(child: Text('${c+1}'))),
-                ]),
-                const SizedBox(height: 8),
-
-                // Filas de círculos
-                for (var r = 0; r < _rows; r++)
-                  Row(children: [
+                    // Croquis con InteractiveViewer para zoom y pan
                     SizedBox(
-                      width: 24,
-                      child: Center(
-                        child: Text(
-                          String.fromCharCode(65 + r),
-                          style: const TextStyle(fontWeight: FontWeight.bold),
+                      height: containerHeight, // Altura dinámica basada en número de filas
+                      child: InteractiveViewer(
+                        boundaryMargin: const EdgeInsets.all(40.0),
+                        minScale: 0.2,
+                        maxScale: 2.0,
+                        child: SingleChildScrollView(
+                          scrollDirection: Axis.vertical, // Permitir scroll vertical
+                          child: SingleChildScrollView(
+                            scrollDirection: Axis.horizontal, // Permitir scroll horizontal
+                            child: _buildTarimaGrid(),
+                          ),
                         ),
                       ),
                     ),
-                    for (var c = 0; c < _cols; c++)
-                      if (r * _cols + c < _count)
-                        Expanded(
-                          child: GestureDetector(
-                            onTap: () => _toggle(r, c),
-                            child: Container(
-                              margin: const EdgeInsets.all(4),
-                              width: 24,
-                              height: 24,
-                              decoration: BoxDecoration(
-                                shape: BoxShape.circle,
-                                color: _occMatrix[r][c]
-                                    ? Colors.purple
-                                    : (_selMatrix[r][c]
-                                    ? Colors.pinkAccent
-                                    : freeColor),
-                                border: Border.all(color: Colors.black, width: 1),
-                              ),
-                            ),
-                          ),
-                        )
-                      else
-                        const Spacer(),
-                  ]),
-                const SizedBox(height: 12),
 
-                // Leyenda
-                const Row(children: [
-                  _Legend(color: Colors.purple, label: 'Ocupado'),
-                  SizedBox(width: 12),
-                  _Legend(color: Colors.grey, label: 'Libre'),
-                  SizedBox(width: 12),
-                  _Legend(color: Colors.pinkAccent, label: 'Seleccionado'),
-                ]),
-              ]),
+                    const SizedBox(height: 12),
+
+                    // Leyenda
+                    const Row(children: [
+                      _Legend(color: Colors.purple, label: 'Ocupado'),
+                      SizedBox(width: 12),
+                      _Legend(color: Colors.grey, label: 'Libre'),
+                      SizedBox(width: 12),
+                      _Legend(color: Colors.pinkAccent, label: 'Seleccionado'),
+                    ]),
+                  ]),
             ),
           ),
 
@@ -294,6 +351,10 @@ class _AsignarTarimaScreenState extends State<AsignarTarimaScreen> {
               onPressed: _captureAndShare,
               icon: const Icon(Icons.share),
               label: const Text('Compartir'),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: const Color(0xFF5A0F4D),
+                foregroundColor: Colors.white,
+              ),
             ),
             ElevatedButton.icon(
               onPressed: () => Navigator.push(

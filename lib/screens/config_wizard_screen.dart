@@ -60,11 +60,64 @@ class _ConfigWizardScreenState extends State<ConfigWizardScreen> {
         _controller.nextPage(duration: const Duration(milliseconds: 300), curve: Curves.easeInOut);
       }
     } else {
-      if (_formKey2.currentState!.validate()) {
+      if (_formKey2.currentState!.validate() && _validateGridRelationships()) {
         _formKey2.currentState!.save();
         _saveConfig();
       }
     }
+  }
+
+  // Validador para números positivos
+  String? _validatePositiveNumber(String? v) {
+    if (v == null || v.isEmpty) return 'Requerido';
+
+    final number = int.tryParse(v);
+    if (number == null) return 'Debe ser un número entero';
+    if (number <= 0) return 'Debe ser mayor que 0';
+
+    return null;
+  }
+
+  // Valida la relación entre sillas/tarimas y filas×columnas
+  bool _validateGridRelationships() {
+    bool isValid = true;
+    String errorMessage = '';
+
+    // Validar sillas
+    for (int i = 0; i < _numZonaSillas; i++) {
+      final seatsCount = int.tryParse(_sillasCountCtrls[i].text) ?? 0;
+      final rows = int.tryParse(_sillasRowsCtrls[i].text) ?? 0;
+      final cols = int.tryParse(_sillasColsCtrls[i].text) ?? 0;
+
+      if (seatsCount > rows * cols) {
+        errorMessage = 'Zona ${i+1} de sillas: El número de sillas no puede exceder filas × columnas';
+        isValid = false;
+        break;
+      }
+    }
+
+    // Validar tarimas
+    if (isValid) {
+      for (int i = 0; i < _numTarimas; i++) {
+        final seatsCount = int.tryParse(_tarimasCountCtrls[i].text) ?? 0;
+        final rows = int.tryParse(_tarimasRowsCtrls[i].text) ?? 0;
+        final cols = int.tryParse(_tarimasColsCtrls[i].text) ?? 0;
+
+        if (seatsCount > rows * cols) {
+          errorMessage = 'Zona ${i+1} de tarimas: El número de tarimas no puede exceder filas × columnas';
+          isValid = false;
+          break;
+        }
+      }
+    }
+
+    if (!isValid) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(errorMessage)),
+      );
+    }
+
+    return isValid;
   }
 
   Future<void> _saveConfig() async {
@@ -222,8 +275,7 @@ class _ConfigWizardScreenState extends State<ConfigWizardScreen> {
                               hintStyle: const TextStyle(color: Colors.black38),
                             ),
                             keyboardType: TextInputType.number,
-                            validator: (v) =>
-                            (v == null || v.isEmpty) ? 'Requerido' : null,
+                            validator: _validatePositiveNumber,
                           ),
                         ),
                         const SizedBox(width: 12),
@@ -236,8 +288,7 @@ class _ConfigWizardScreenState extends State<ConfigWizardScreen> {
                               hintStyle: const TextStyle(color: Colors.black38),
                             ),
                             keyboardType: TextInputType.number,
-                            validator: (v) =>
-                            (v == null || v.isEmpty) ? 'Requerido' : null,
+                            validator: _validatePositiveNumber,
                           ),
                         ),
                         const SizedBox(width: 12),
@@ -250,8 +301,7 @@ class _ConfigWizardScreenState extends State<ConfigWizardScreen> {
                               hintStyle: const TextStyle(color: Colors.black38),
                             ),
                             keyboardType: TextInputType.number,
-                            validator: (v) =>
-                            (v == null || v.isEmpty) ? 'Requerido' : null,
+                            validator: _validatePositiveNumber,
                           ),
                         ),
                       ]),
@@ -272,8 +322,7 @@ class _ConfigWizardScreenState extends State<ConfigWizardScreen> {
                           hintStyle: const TextStyle(color: Colors.black38),
                         ),
                         keyboardType: TextInputType.number,
-                        validator: (v) =>
-                        (v == null || v.isEmpty) ? 'Requerido' : null,
+                        validator: _validatePositiveNumber,
                       ),
                       const SizedBox(height: 12),
                     ],
@@ -294,8 +343,7 @@ class _ConfigWizardScreenState extends State<ConfigWizardScreen> {
                               hintStyle: const TextStyle(color: Colors.black38),
                             ),
                             keyboardType: TextInputType.number,
-                            validator: (v) =>
-                            (v == null || v.isEmpty) ? 'Requerido' : null,
+                            validator: _validatePositiveNumber,
                           ),
                         ),
                         const SizedBox(width: 12),
@@ -308,8 +356,7 @@ class _ConfigWizardScreenState extends State<ConfigWizardScreen> {
                               hintStyle: const TextStyle(color: Colors.black38),
                             ),
                             keyboardType: TextInputType.number,
-                            validator: (v) =>
-                            (v == null || v.isEmpty) ? 'Requerido' : null,
+                            validator: _validatePositiveNumber,
                           ),
                         ),
                         const SizedBox(width: 12),
@@ -322,8 +369,7 @@ class _ConfigWizardScreenState extends State<ConfigWizardScreen> {
                               hintStyle: const TextStyle(color: Colors.black38),
                             ),
                             keyboardType: TextInputType.number,
-                            validator: (v) =>
-                            (v == null || v.isEmpty) ? 'Requerido' : null,
+                            validator: _validatePositiveNumber,
                           ),
                         ),
                       ]),
@@ -350,8 +396,7 @@ class _ConfigWizardScreenState extends State<ConfigWizardScreen> {
       ),
       keyboardType: TextInputType.number,
       onSaved: (v) => onSaved(int.parse(v!)),
-      validator: (v) =>
-      (v == null || int.tryParse(v) == null) ? 'Requerido' : null,
+      validator: _validatePositiveNumber,
     );
   }
 

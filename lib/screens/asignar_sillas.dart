@@ -2,6 +2,7 @@
 
 import 'dart:io';
 import 'dart:ui' as ui;
+import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
@@ -32,7 +33,7 @@ class _AsignarSillaScreenState extends State<AsignarSillaScreen> {
   late int _filas;
   late int _columnas;
   late List<int> _precios;               // precios por fila
-  late List<String> _seatIds;            // IDs de asiento “A1”… hasta total
+  late List<String> _seatIds;            // IDs de asiento "A1"… hasta total
   late List<List<bool>> _selMatrix;      // matriz de selección
   List<List<bool>> _occMatrix = [];      // matriz de ocupados
 
@@ -60,7 +61,7 @@ class _AsignarSillaScreenState extends State<AsignarSillaScreen> {
       _filas       = rows[zi];
       _columnas    = cols[zi];
 
-      // 3) Genero los IDs de asiento (“A1”…) hasta totalSillas
+      // 3) Genero los IDs de asiento ("A1"…) hasta totalSillas
       _seatIds = List.generate(
         _filas * _columnas,
             (i) => '${String.fromCharCode(65 + i ~/ _columnas)}${(i % _columnas) + 1}',
@@ -207,6 +208,87 @@ class _AsignarSillaScreenState extends State<AsignarSillaScreen> {
     );
   }
 
+  // Widget que construye el grid de asientos con numeración completa
+  Widget _buildSeatGrid() {
+    // Calcula el tamaño basado en el número de filas y columnas
+    final maxElements = math.max(_filas, _columnas);
+    final double circleSize = maxElements > 10 ? 25.0 : 30.0; // Más pequeño si hay muchos elementos
+    final double spacing = circleSize > 25 ? 8.0 : 6.0; // Espaciado proporcional
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      mainAxisSize: MainAxisSize.min, // Importante para evitar expandir verticalmente
+      children: [
+        // cabezal gris
+        Container(
+            width: (_columnas * (circleSize + spacing)) + 40, // Ancho total del grid
+            height: 20,
+            color: Colors.grey.shade300
+        ),
+        const SizedBox(height: 12),
+
+        // Numeración columnas (asegurando que abarque todas las columnas)
+        Row(
+          mainAxisSize: MainAxisSize.min, // Evita expansión horizontal
+          children: [
+            const SizedBox(width: 40), // Espacio para letras de fila
+            for (var c = 0; c < _columnas; c++)
+              Container(
+                width: circleSize + spacing,
+                alignment: Alignment.center,
+                child: Text(
+                  '${c + 1}',
+                  style: const TextStyle(fontSize: 14),
+                ),
+              ),
+          ],
+        ),
+        const SizedBox(height: 8),
+
+        // Filas de círculos
+        for (var r = 0; r < _filas; r++)
+          Row(
+            mainAxisSize: MainAxisSize.min, // Evita expansión horizontal
+            children: [
+              // Letra de fila
+              Container(
+                width: 40,
+                height: circleSize + spacing,
+                alignment: Alignment.center,
+                child: Text(
+                  String.fromCharCode(65 + r),
+                  style: const TextStyle(fontWeight: FontWeight.bold),
+                ),
+              ),
+              // Círculos de asientos
+              for (var c = 0; c < _columnas; c++)
+                if (r * _columnas + c < _totalSillas)
+                  Container(
+                    width: circleSize,
+                    height: circleSize,
+                    margin: EdgeInsets.all(spacing / 2),
+                    decoration: BoxDecoration(
+                      shape: BoxShape.circle,
+                      color: _occMatrix[r][c]
+                          ? Colors.purple
+                          : (_selMatrix[r][c]
+                          ? Colors.pinkAccent
+                          : Colors.grey),
+                      border: Border.all(color: Colors.black, width: 1),
+                    ),
+                    child: InkWell(
+                      onTap: () => _toggleSeat(r, c),
+                      borderRadius: BorderRadius.circular(50),
+                    ),
+                  )
+                else
+                  SizedBox(width: circleSize + spacing),
+            ],
+          ),
+      ],
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     if (_loading) {
@@ -235,6 +317,9 @@ class _AsignarSillaScreenState extends State<AsignarSillaScreen> {
     }
     final total = subtotal;
 
+    // Calcula la altura ideal para el contenedor basado en el número de filas
+    final double containerHeight = math.min(400, math.max(300, _filas * 40.0));
+
     return Scaffold(
       appBar: AppBar(
         title: Text('Sillas zona ${widget.zoneIndex + 1}',
@@ -259,94 +344,66 @@ class _AsignarSillaScreenState extends State<AsignarSillaScreen> {
                   borderRadius: BorderRadius.circular(8)),
               child: Padding(
                 padding: const EdgeInsets.all(16),
-                child: Column(children: [
-                  // croquis
-                  Container(
-                    decoration: BoxDecoration(
-                      color: Colors.white,
-                      border: Border.all(color: Colors.grey.shade300),
-                      borderRadius: BorderRadius.circular(5),
-                    ),
-                    padding: const EdgeInsets.all(16),
-                    child: Column(children: [
-                      // cabezal gris
-                      Container(height: 20, color: Colors.grey.shade300),
-                      const SizedBox(height: 12),
-
-                      // numeración columnas
-                      Row(children: [
-                        const SizedBox(width: 24),
-                        for (var c = 0; c < _columnas; c++)
-                          Expanded(child: Center(child: Text('${c + 1}'))),
-                      ]),
-                      const SizedBox(height: 8),
-
-                      // filas de sillas
-                      for (var r = 0; r < _filas; r++)
-                        Row(children: [
-                          SizedBox(
-                            width: 24,
-                            child: Center(
-                              child: Text(
-                                String.fromCharCode(65 + r),
-                                style: const TextStyle(fontWeight: FontWeight.bold),
-                              ),
-                            ),
-                          ),
-                          for (var c = 0; c < _columnas; c++)
-                            if (r * _columnas + c < _seatIds.length)
-                              Expanded(
-                                child: GestureDetector(
-                                  onTap: () => _toggleSeat(r, c),
-                                  child: Container(
-                                    margin: const EdgeInsets.all(4),
-                                    width: 24,
-                                    height: 24,
-                                    decoration: BoxDecoration(
-                                      shape: BoxShape.circle,
-                                      color: _occMatrix[r][c]
-                                          ? Colors.purple
-                                          : (_selMatrix[r][c]
-                                          ? Colors.pinkAccent
-                                          : Colors.grey),
-                                      border:
-                                      Border.all(color: Colors.black, width: 1),
+                child: Column(
+                    mainAxisSize: MainAxisSize.min, // Importante para evitar expansión vertical
+                    children: [
+                      // croquis con InteractiveViewer para zoom y pan
+                      Container(
+                        decoration: BoxDecoration(
+                          color: Colors.white,
+                          border: Border.all(color: Colors.grey.shade300),
+                          borderRadius: BorderRadius.circular(5),
+                        ),
+                        padding: const EdgeInsets.all(16),
+                        child: Column(
+                            mainAxisSize: MainAxisSize.min, // Importante para evitar expansión vertical
+                            children: [
+                              // Envolvemos el grid en InteractiveViewer y SingleChildScrollView
+                              SizedBox(
+                                height: containerHeight, // Altura dinámica basada en número de filas
+                                child: InteractiveViewer(
+                                  boundaryMargin: const EdgeInsets.all(40.0),
+                                  minScale: 0.2,
+                                  maxScale: 2.0,
+                                  child: SingleChildScrollView(
+                                    scrollDirection: Axis.vertical, // Permitir scroll vertical
+                                    child: SingleChildScrollView(
+                                      scrollDirection: Axis.horizontal, // Permitir scroll horizontal
+                                      child: _buildSeatGrid(),
                                     ),
                                   ),
                                 ),
-                              )
-                            else
-                              const Spacer(),
-                        ]),
+                              ),
+
+                              const SizedBox(height: 12),
+                              const Row(children: [
+                                _LegendBox(color: Colors.purple, label: 'Ocupado'),
+                                SizedBox(width: 12),
+                                _LegendBox(color: Colors.grey, label: 'Libre'),
+                                SizedBox(width: 12),
+                                _LegendBox(color: Colors.pinkAccent, label: 'Seleccionado'),
+                              ]),
+                            ]),
+                      ),
+
+                      const SizedBox(height: 20),
+
+                      // precios por fila + totales
+                      const Text('Precios por fila:',
+                          style: TextStyle(fontWeight: FontWeight.bold)),
+                      const SizedBox(height: 8),
+                      for (var r = 0; r < _filas; r++)
+                        Padding(
+                          padding: const EdgeInsets.symmetric(vertical: 4),
+                          child: Text(
+                              'Fila ${String.fromCharCode(65 + r)}: \$${_precios[r]}'),
+                        ),
+
                       const SizedBox(height: 12),
-                      const Row(children: [
-                        _LegendBox(color: Colors.purple, label: 'Ocupado'),
-                        SizedBox(width: 12),
-                        _LegendBox(color: Colors.grey, label: 'Libre'),
-                        SizedBox(width: 12),
-                        _LegendBox(color: Colors.pinkAccent, label: 'Seleccionado'),
-                      ]),
+                      Text('Asientos: ${selList.join(', ')}'),
+                      Text('Subtotal: \$$subtotal'),
+                      Text('Total: \$$total'),
                     ]),
-                  ),
-
-                  const SizedBox(height: 20),
-
-                  // precios por fila + totales
-                  const Text('Precios por fila:',
-                      style: TextStyle(fontWeight: FontWeight.bold)),
-                  const SizedBox(height: 8),
-                  for (var r = 0; r < _filas; r++)
-                    Padding(
-                      padding: const EdgeInsets.symmetric(vertical: 4),
-                      child: Text(
-                          'Fila ${String.fromCharCode(65 + r)}: \$${_precios[r]}'),
-                    ),
-
-                  const SizedBox(height: 12),
-                  Text('Asientos: ${selList.join(', ')}'),
-                  Text('Subtotal: \$$subtotal'),
-                  Text('Total: \$$total'),
-                ]),
               ),
             ),
           ),

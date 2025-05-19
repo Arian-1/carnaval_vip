@@ -19,8 +19,7 @@ import 'asignar_tarima_screen.dart';
 import 'clientes_screen.dart';
 import 'proveedores_screen.dart';
 import 'ventas_screen.dart';
-
-
+import 'manage_zones_screen.dart'; // Importamos la nueva pantalla
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({Key? key}) : super(key: key);
@@ -121,6 +120,7 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   void _navigate(String id) {
+    // Mejorado para soportar cualquier número de zona
     if (id.startsWith('sillas_')) {
       final idx = int.parse(id.split('_')[1]) - 1;
       Navigator.push(
@@ -148,7 +148,6 @@ class _HomeScreenState extends State<HomeScreen> {
     }
   }
 
-
   Color _colorById(String id) {
     if (id.startsWith('sillas'))  return Colors.purple;
     if (id.startsWith('lotes'))   return Colors.redAccent;
@@ -170,7 +169,7 @@ class _HomeScreenState extends State<HomeScreen> {
 
     return Scaffold(
       appBar: AppBar(
-        iconTheme: IconThemeData(color: Colors.white),
+        iconTheme: const IconThemeData(color: Colors.white),
         title: const Text('Carnaval VIP', style: TextStyle(color: Colors.white)),
         backgroundColor: const Color(0xFF5A0F4D),
       ),
@@ -182,16 +181,13 @@ class _HomeScreenState extends State<HomeScreen> {
                 style: TextStyle(color: Colors.white, fontSize: 24)),
           ),
 
-
           ListTile(
             leading: const Icon(Icons.people),
             title: const Text('Clientes'),
             onTap: () {
               Navigator.pop(context);
-              // Aquí podrías navegar a tu pantalla de clientes:
-              Navigator.push(context, MaterialPageRoute(builder: (_) => ClientesScreen()));
+              Navigator.push(context, MaterialPageRoute(builder: (_) => const ClientesScreen()));
             },
-
           ),
 
           ListTile(
@@ -199,33 +195,31 @@ class _HomeScreenState extends State<HomeScreen> {
             title: const Text('Proveedores'),
             onTap: () {
               Navigator.pop(context);
-              // Aquí podrías navegar a tu pantalla de clientes:
-              Navigator.push(context, MaterialPageRoute(builder: (_) => ProveedoresScreen()));
+              Navigator.push(context, MaterialPageRoute(builder: (_) => const ProveedoresScreen()));
             },
-
           ),
 
           ListTile(
-            leading: const Icon(Icons.storefront),
+            leading: const Icon(Icons.dashboard_customize),
             title: const Text('Zonas'),
             onTap: () {
               Navigator.pop(context);
-              // Aquí podrías navegar a tu pantalla de clientes:
-              // Navigator.push(context, MaterialPageRoute(builder: (_) => ManageZonesScreen()));
+              // Navegamos a la nueva pantalla de gestión de zonas
+              Navigator.push(context, MaterialPageRoute(builder: (_) => const ManageZonesScreen()))
+                  .then((_) {
+                // Cuando volvamos, actualizamos la vista para reflejar cambios
+                setState(() {});
+              });
             },
-
           ),
-
 
           ListTile(
             leading: const Icon(Icons.point_of_sale),
             title: const Text('Ventas'),
             onTap: () {
               Navigator.pop(context);
-              // Aquí podrías navegar a tu pantalla de clientes:
-               Navigator.push(context, MaterialPageRoute(builder: (_) => VentasScreen()));
+              Navigator.push(context, MaterialPageRoute(builder: (_) => const VentasScreen()));
             },
-
           ),
 
           ListTile(
@@ -237,7 +231,6 @@ class _HomeScreenState extends State<HomeScreen> {
                   .pushNamedAndRemoveUntil('/onboarding', (_) => false);
             },
           ),
-
         ]),
       ),
       body: Padding(
@@ -308,16 +301,31 @@ class _HomeScreenState extends State<HomeScreen> {
             ),
 
             const SizedBox(height: 16),
-            Align(
-              alignment: Alignment.centerRight,
-              child: ElevatedButton.icon(
-                onPressed: _captureAndShareCroquis,
-                icon: const Icon(Icons.download, size: 20, color: Colors.white,),
-                label: const Text('Descargar croquis', style: TextStyle(color: Colors.white)),
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: const Color(0xFF3D0909),
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                ElevatedButton.icon(
+                  onPressed: () {
+                    Navigator.push(
+                        context,
+                        MaterialPageRoute(builder: (_) => const ManageZonesScreen())
+                    ).then((_) => setState(() {}));
+                  },
+                  icon: const Icon(Icons.dashboard_customize, size: 20, color: Colors.white),
+                  label: const Text('Gestionar Zonas', style: TextStyle(color: Colors.white)),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: const Color(0xFF5A0F4D),
+                  ),
                 ),
-              ),
+                ElevatedButton.icon(
+                  onPressed: _captureAndShareCroquis,
+                  icon: const Icon(Icons.download, size: 20, color: Colors.white),
+                  label: const Text('Descargar croquis', style: TextStyle(color: Colors.white)),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: const Color(0xFF3D0909),
+                  ),
+                ),
+              ],
             ),
           ],
         ),
@@ -325,11 +333,3 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 }
-
-
-
-
-
-
-
-

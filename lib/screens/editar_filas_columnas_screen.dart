@@ -88,6 +88,29 @@ class _EditarFilasColumnasScreenState
   }
 
   Future<void> _save() async {
+    // Validaciones de valores mínimos
+    if (_tempSeatCount <= 0) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('El número de sillas debe ser mayor a 0.')),
+      );
+      return;
+    }
+
+    if (_tempRowCount <= 0) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('El número de filas debe ser mayor a 0.')),
+      );
+      return;
+    }
+
+    if (_tempColCount <= 0) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('El número de columnas debe ser mayor a 0.')),
+      );
+      return;
+    }
+
+    // Validación de la relación sillas vs. filas×columnas
     if (_tempSeatCount > _tempRowCount * _tempColCount) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(

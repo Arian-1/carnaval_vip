@@ -115,7 +115,7 @@ class _AsignarLoteScreenState extends State<AsignarLoteScreen> {
               await FirebaseFirestore.instance
                   .collection('users').doc(uid)
                   .collection('config').doc('prices')
-                  .collection('lotes').doc('zona_${widget.zoneIndex + 1}')
+                  .collection('lotes').doc('zona_${widget.zoneIndex + 1}', )
                   .set({'precio': v});
               setState(() => _price = v);
               Navigator.pop(ctx);
@@ -162,7 +162,8 @@ class _AsignarLoteScreenState extends State<AsignarLoteScreen> {
 
     return Scaffold(
       appBar: AppBar(
-        title: Text('Lotes zona ${widget.zoneIndex + 1}'),
+        title: Text('Lotes zona ${widget.zoneIndex + 1}',  ),
+        foregroundColor: Colors.white,
         backgroundColor: const Color(0xFF5A0F4D),
         leading: const BackButton(color: Colors.white),
       ),
