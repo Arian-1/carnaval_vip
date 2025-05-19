@@ -51,6 +51,15 @@ class _ConfigWizardScreenState extends State<ConfigWizardScreen> {
     if (_currentPage == 0) {
       if (_formKey1.currentState!.validate()) {
         _formKey1.currentState!.save();
+
+        // Verificar que al menos una zona esté configurada
+        if (_numTarimas == 0 && _numZonesLotes == 0 && _numZonaSillas == 0 && _extras.trim().isEmpty) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('Debes configurar al menos un tipo de zona')),
+          );
+          return;
+        }
+
         // preparar controllers para paso 2
         _sillasCountCtrls   = List.generate(_numZonaSillas, (_) => TextEditingController());
         _sillasRowsCtrls    = List.generate(_numZonaSillas, (_) => TextEditingController());
@@ -64,12 +73,68 @@ class _ConfigWizardScreenState extends State<ConfigWizardScreen> {
         _controller.nextPage(duration: const Duration(milliseconds: 300), curve: Curves.easeInOut);
       }
     } else {
+      // Limpiar las listas de zonas ineficientes antes de volver a comprobar
       _sillasWasteful.clear();
       _tarimasWasteful.clear();
 
-      if (_formKey2.currentState!.validate() && _validateGridRelationships()) {
-        // Si hay zonas ineficientes, mostrar advertencia
-        if (_sillasWasteful.isNotEmpty || _tarimasWasteful.isNotEmpty) {
+      if (_formKey2.currentState!.validate()) {
+        // Comprobaciones explícitas de eficiencia
+        bool hasInefficiencyWarning = false;
+
+        // Verificar zonas de sillas
+        for (int i = 0; i < _numZonaSillas; i++) {
+          final seatsCount = int.tryParse(_sillasCountCtrls[i].text) ?? 0;
+          final rows = int.tryParse(_sillasRowsCtrls[i].text) ?? 0;
+          final cols = int.tryParse(_sillasColsCtrls[i].text) ?? 0;
+
+          if (rows > 0 && cols > 0) {
+            // Verificar que count no exceda rows*cols
+            if (seatsCount > rows * cols) {
+              ScaffoldMessenger.of(context).showSnackBar(
+                SnackBar(content: Text('Zona ${i+1} de sillas: El número de sillas no puede exceder filas × columnas')),
+              );
+              return;
+            }
+
+            // Comprobar eficiencia
+            final totalSlots = rows * cols;
+            final utilizationRate = seatsCount / totalSlots;
+
+            if (utilizationRate < 0.5) {
+              _sillasWasteful.add(i);
+              hasInefficiencyWarning = true;
+            }
+          }
+        }
+
+        // Verificar zonas de tarimas
+        for (int i = 0; i < _numTarimas; i++) {
+          final tarimCount = int.tryParse(_tarimasCountCtrls[i].text) ?? 0;
+          final rows = int.tryParse(_tarimasRowsCtrls[i].text) ?? 0;
+          final cols = int.tryParse(_tarimasColsCtrls[i].text) ?? 0;
+
+          if (rows > 0 && cols > 0) {
+            // Verificar que count no exceda rows*cols
+            if (tarimCount > rows * cols) {
+              ScaffoldMessenger.of(context).showSnackBar(
+                SnackBar(content: Text('Zona ${i+1} de tarimas: El número de tarimas no puede exceder filas × columnas')),
+              );
+              return;
+            }
+
+            // Comprobar eficiencia
+            final totalSlots = rows * cols;
+            final utilizationRate = tarimCount / totalSlots;
+
+            if (utilizationRate < 0.5) {
+              _tarimasWasteful.add(i);
+              hasInefficiencyWarning = true;
+            }
+          }
+        }
+
+        // Si hay alguna advertencia de ineficiencia, mostrar el diálogo
+        if (hasInefficiencyWarning) {
           _showWastefulWarning().then((shouldContinue) {
             if (shouldContinue) {
               _formKey2.currentState!.save();
@@ -77,6 +142,7 @@ class _ConfigWizardScreenState extends State<ConfigWizardScreen> {
             }
           });
         } else {
+          // Si no hay advertencias, continuar normalmente
           _formKey2.currentState!.save();
           _saveConfig();
         }
@@ -95,116 +161,15 @@ class _ConfigWizardScreenState extends State<ConfigWizardScreen> {
     return null;
   }
 
-  // Valida la relación entre sillas/tarimas y filas×columnas
-  bool _validateGridRelationships() {
-    bool isValid = true;
-    String errorMessage = '';
+  // Validador para números en el paso 1 (puede ser 0 o positivo)
+  String? _validateNumberPaso1(String? v) {
+    if (v == null || v.isEmpty) return 'Requerido';
 
-    // Validar sillas
-    for (int i = 0; i < _numZonaSillas; i++) {
-      final seatsCount = int.tryParse(_sillasCountCtrls[i].text) ?? 0;
-      final rows = int.tryParse(_sillasRowsCtrls[i].text) ?? 0;
-      final cols = int.tryParse(_sillasColsCtrls[i].text) ?? 0;
+    final number = int.tryParse(v);
+    if (number == null) return 'Debe ser un número entero';
+    if (number < 0) return 'No puede ser negativo';
 
-      // Verificar que no sea 0
-      if (seatsCount <= 0) {
-        errorMessage = 'Zona ${i+1} de sillas: El número de sillas debe ser mayor a 0';
-        isValid = false;
-        break;
-      }
-
-      if (rows <= 0) {
-        errorMessage = 'Zona ${i+1} de sillas: El número de filas debe ser mayor a 0';
-        isValid = false;
-        break;
-      }
-
-      if (cols <= 0) {
-        errorMessage = 'Zona ${i+1} de sillas: El número de columnas debe ser mayor a 0';
-        isValid = false;
-        break;
-      }
-
-      // Verificar relación sillas vs espacio disponible
-      if (seatsCount > rows * cols) {
-        errorMessage = 'Zona ${i+1} de sillas: El número de sillas no puede exceder filas × columnas';
-        isValid = false;
-        break;
-      }
-
-      // NUEVA VALIDACIÓN: Verificar eficiencia de uso del espacio
-      int totalSlots = rows * cols;
-      int emptySlots = totalSlots - seatsCount;
-      double utilizationRate = seatsCount / totalSlots;
-
-      if (utilizationRate < 0.5) {
-        _sillasWasteful.add(i); // Marcar esta zona como ineficiente
-      }
-    }
-
-    // Validar tarimas
-    if (isValid) {
-      for (int i = 0; i < _numTarimas; i++) {
-        final tarimCount = int.tryParse(_tarimasCountCtrls[i].text) ?? 0;
-        final rows = int.tryParse(_tarimasRowsCtrls[i].text) ?? 0;
-        final cols = int.tryParse(_tarimasColsCtrls[i].text) ?? 0;
-
-        // Verificar que no sea 0
-        if (tarimCount <= 0) {
-          errorMessage = 'Zona ${i+1} de tarimas: El número de tarimas debe ser mayor a 0';
-          isValid = false;
-          break;
-        }
-
-        if (rows <= 0) {
-          errorMessage = 'Zona ${i+1} de tarimas: El número de filas debe ser mayor a 0';
-          isValid = false;
-          break;
-        }
-
-        if (cols <= 0) {
-          errorMessage = 'Zona ${i+1} de tarimas: El número de columnas debe ser mayor a 0';
-          isValid = false;
-          break;
-        }
-
-        // Verificar relación tarimas vs espacio disponible
-        if (tarimCount > rows * cols) {
-          errorMessage = 'Zona ${i+1} de tarimas: El número de tarimas no puede exceder filas × columnas';
-          isValid = false;
-          break;
-        }
-
-        // NUEVA VALIDACIÓN: Verificar eficiencia de uso del espacio
-        int totalSlots = rows * cols;
-        int emptySlots = totalSlots - tarimCount;
-        double utilizationRate = tarimCount / totalSlots;
-
-        if (utilizationRate < 0.5) {
-          _tarimasWasteful.add(i); // Marcar esta zona como ineficiente
-        }
-      }
-    }
-
-    // Validar lotes (solo verificar que no sea 0)
-    if (isValid) {
-      for (int i = 0; i < _numZonesLotes; i++) {
-        final lotesCount = int.tryParse(_lotesCtrls[i].text) ?? 0;
-        if (lotesCount <= 0) {
-          errorMessage = 'Zona ${i+1} de lotes: El número de lotes debe ser mayor a 0';
-          isValid = false;
-          break;
-        }
-      }
-    }
-
-    if (!isValid) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(errorMessage)),
-      );
-    }
-
-    return isValid;
+    return null;
   }
 
   // Mostrar advertencia de configuración ineficiente
@@ -235,6 +200,7 @@ class _ConfigWizardScreenState extends State<ConfigWizardScreen> {
 
     return await showDialog<bool>(
       context: context,
+      barrierDismissible: false,
       builder: (context) => AlertDialog(
         title: const Text('Configuración ineficiente'),
         content: SingleChildScrollView(
@@ -275,12 +241,21 @@ class _ConfigWizardScreenState extends State<ConfigWizardScreen> {
     final uid  = FirebaseAuth.instance.currentUser!.uid;
     final base = FirebaseFirestore.instance.collection('users').doc(uid);
 
+    // Lista de extras correctamente procesada
+    List<String> extrasList = [];
+    if (_extras.trim().isNotEmpty) {
+      extrasList = _extras.split(',')
+          .map((e) => e.trim())
+          .where((e) => e.isNotEmpty)
+          .toList();
+    }
+
     // Paso 1
     await base.collection('config').doc('setup').set({
       'tarimas':    _numTarimas,
       'zonesLotes': _numZonesLotes,
       'zonaSillas': _numZonaSillas,
-      'extras':     _extras.split(',').map((e) => e.trim()).toList(),
+      'extras':     extrasList,
     });
 
     // Paso 2: sillas
@@ -378,11 +353,11 @@ class _ConfigWizardScreenState extends State<ConfigWizardScreen> {
               child: Form(
                 key: _formKey1,
                 child: Column(children: [
-                  _buildNumberField(ctx, 'Tarimas', (v) => _numTarimas = v),
-                  _buildNumberField(ctx, 'Lotes', (v) => _numZonesLotes = v),
-                  _buildNumberField(ctx, 'Sillas', (v) => _numZonaSillas = v),
+                  _buildNumberFieldPaso1(ctx, 'Tarimas', (v) => _numTarimas = v),
+                  _buildNumberFieldPaso1(ctx, 'Lotes', (v) => _numZonesLotes = v),
+                  _buildNumberFieldPaso1(ctx, 'Sillas', (v) => _numZonaSillas = v),
                   _buildTextField(ctx, 'Extras (separados por comas)',
-                      onSaved: (s) => _extras = s!),
+                      onSaved: (s) => _extras = s ?? ''),
                 ]),
               ),
             ),
@@ -536,7 +511,7 @@ class _ConfigWizardScreenState extends State<ConfigWizardScreen> {
     );
   }
 
-  Widget _buildNumberField(
+  Widget _buildNumberFieldPaso1(
       BuildContext ctx, String label, ValueChanged<int> onSaved) {
     return TextFormField(
       decoration: InputDecoration(
@@ -546,8 +521,8 @@ class _ConfigWizardScreenState extends State<ConfigWizardScreen> {
         isDense: true,
       ),
       keyboardType: TextInputType.number,
-      onSaved: (v) => onSaved(int.parse(v!)),
-      validator: _validatePositiveNumber,
+      onSaved: (v) => onSaved(int.tryParse(v!) ?? 0),
+      validator: _validateNumberPaso1,
     );
   }
 
