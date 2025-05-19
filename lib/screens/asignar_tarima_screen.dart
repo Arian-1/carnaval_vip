@@ -1,5 +1,3 @@
-// lib/screens/asignar_tarima_screen.dart
-
 import 'dart:io';
 import 'dart:typed_data';
 import 'dart:ui' as ui;
@@ -83,10 +81,10 @@ class _AsignarTarimaScreenState extends State<AsignarTarimaScreen> {
         _count = widget.zoneIndex < countsArr.length ? countsArr[widget.zoneIndex] : 1;
       }
 
-      // 3) IDs de tarima estilo "A1", "A2", … "B1", …, hasta _count
+      // 3) IDs de tarima “A1”, “A2”, … hasta _count
       _tarimaIds = List.generate(_rows * _cols, (i) {
-        final r = i ~/ _cols;  // fila 0,1,2…
-        final c = i %  _cols;  // col 0,1,2…
+        final r = i ~/ _cols;
+        final c = i %  _cols;
         return '${String.fromCharCode(65 + r)}${c + 1}';
       }).take(_count).toList();
 
@@ -95,7 +93,7 @@ class _AsignarTarimaScreenState extends State<AsignarTarimaScreen> {
           .collection('config')
           .doc('prices')
           .collection('tarimas')
-          .doc('zona_${widget.zoneIndex+1}')
+          .doc('zona_${widget.zoneIndex + 1}')
           .get();
       if (pSnap.exists) {
         final p = pSnap.data()!['precio'];
@@ -129,7 +127,7 @@ class _AsignarTarimaScreenState extends State<AsignarTarimaScreen> {
       setState(() => _loading = false);
     } catch (e) {
       setState(() {
-        _error = e.toString();
+        _error   = e.toString();
         _loading = false;
       });
     }
@@ -140,7 +138,7 @@ class _AsignarTarimaScreenState extends State<AsignarTarimaScreen> {
     await showDialog(
       context: context,
       builder: (ctx) => AlertDialog(
-        title: Text('Precio zona ${widget.zoneIndex+1}'),
+        title: Text('Precio zona ${widget.zoneIndex + 1}'),
         content: TextField(
           controller: ctrl,
           keyboardType: TextInputType.number,
@@ -155,7 +153,7 @@ class _AsignarTarimaScreenState extends State<AsignarTarimaScreen> {
               await FirebaseFirestore.instance
                   .collection('users').doc(uid)
                   .collection('config').doc('prices')
-                  .collection('tarimas').doc('zona_${widget.zoneIndex+1}')
+                  .collection('tarimas').doc('zona_${widget.zoneIndex + 1}')
                   .set({'precio': v});
               setState(() => _price = v);
               Navigator.pop(ctx);
@@ -173,88 +171,78 @@ class _AsignarTarimaScreenState extends State<AsignarTarimaScreen> {
   }
 
   Future<void> _captureAndShare() async {
-    final boundary = _repaintKey.currentContext!.findRenderObject() as RenderRepaintBoundary;
+    final boundary = _repaintKey.currentContext!
+        .findRenderObject() as RenderRepaintBoundary;
     final image    = await boundary.toImage(pixelRatio: 2.0);
     final bytes    = (await image.toByteData(format: ui.ImageByteFormat.png))!
         .buffer.asUint8List();
     final dir      = await getTemporaryDirectory();
     final file     = await File('${dir.path}/tarimas.png').create();
     await file.writeAsBytes(bytes);
-    await Share.shareXFiles([XFile(file.path)], text: '¡Mira mis tarimas y precios!');
+    await Share.shareXFiles(
+      [XFile(file.path)],
+      text: '¡Mira mis tarimas y precios!',
+    );
   }
 
-  // Widget para construir el grid de tarimas con numeración completa
   Widget _buildTarimaGrid() {
-    // Calcula el tamaño basado en el número de filas y columnas
     final maxElements = math.max(_rows, _cols);
-    final double circleSize = maxElements > 10 ? 25.0 : 30.0; // Más pequeño si hay muchos elementos
-    final double spacing = circleSize > 25 ? 8.0 : 6.0; // Espaciado proporcional
-    final freeColor = Colors.grey.shade400;
+    final circleSize  = maxElements > 10 ? 25.0 : 30.0;
+    final spacing     = circleSize > 25 ? 8.0 : 6.0;
+    final freeColor   = Colors.grey.shade400;
 
     return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      mainAxisSize: MainAxisSize.min, // Importante para evitar expandir verticalmente
+      mainAxisSize: MainAxisSize.min,
       children: [
-        // Cabezal gris - Ancho total del grid
         Container(
-            width: (_cols * (circleSize + spacing)) + 40, // Ancho total que abarca todas las columnas
-            height: 20,
-            color: Colors.grey.shade300
+          width: (_cols * (circleSize + spacing)) + 40,
+          height: 20,
+          color: Colors.grey.shade300,
         ),
         const SizedBox(height: 12),
-
-        // Numeración completa para todas las columnas
         Row(
-          mainAxisSize: MainAxisSize.min, // Evita expansión horizontal
+          mainAxisSize: MainAxisSize.min,
           children: [
-            const SizedBox(width: 40), // Espacio para letras de fila
+            const SizedBox(width: 40),
             for (var c = 0; c < _cols; c++)
-              Container(
+              SizedBox(
                 width: circleSize + spacing,
-                alignment: Alignment.center,
-                child: Text(
-                  '${c + 1}',
-                  style: const TextStyle(fontSize: 14),
-                ),
+                child: Center(child: Text('${c + 1}')),
               ),
           ],
         ),
         const SizedBox(height: 8),
-
-        // Filas de círculos
         for (var r = 0; r < _rows; r++)
           Row(
-            mainAxisSize: MainAxisSize.min, // Evita expansión horizontal
+            mainAxisSize: MainAxisSize.min,
             children: [
-              // Letra de fila
-              Container(
+              SizedBox(
                 width: 40,
                 height: circleSize + spacing,
-                alignment: Alignment.center,
-                child: Text(
-                  String.fromCharCode(65 + r),
-                  style: const TextStyle(fontWeight: FontWeight.bold),
+                child: Center(
+                  child: Text(
+                    String.fromCharCode(65 + r),
+                    style: const TextStyle(fontWeight: FontWeight.bold),
+                  ),
                 ),
               ),
-              // Círculos de tarimas
               for (var c = 0; c < _cols; c++)
                 if (r * _cols + c < _count)
-                  Container(
-                    width: circleSize,
-                    height: circleSize,
-                    margin: EdgeInsets.all(spacing / 2),
-                    decoration: BoxDecoration(
-                      shape: BoxShape.circle,
-                      color: _occMatrix[r][c]
-                          ? Colors.purple
-                          : (_selMatrix[r][c]
-                          ? Colors.pinkAccent
-                          : freeColor),
-                      border: Border.all(color: Colors.black, width: 1),
-                    ),
-                    child: InkWell(
-                      onTap: () => _toggle(r, c),
-                      borderRadius: BorderRadius.circular(50),
+                  InkWell(
+                    onTap: () => _toggle(r, c),
+                    child: Container(
+                      width: circleSize,
+                      height: circleSize,
+                      margin: EdgeInsets.all(spacing / 2),
+                      decoration: BoxDecoration(
+                        shape: BoxShape.circle,
+                        color: _occMatrix[r][c]
+                            ? Colors.purple
+                            : (_selMatrix[r][c]
+                            ? Colors.pinkAccent
+                            : freeColor),
+                        border: Border.all(color: Colors.black, width: 1),
+                      ),
                     ),
                   )
                 else
@@ -268,14 +256,13 @@ class _AsignarTarimaScreenState extends State<AsignarTarimaScreen> {
   @override
   Widget build(BuildContext context) {
     if (_loading) return const Scaffold(body: Center(child: CircularProgressIndicator()));
-    if (_error != null) return Scaffold(body: Center(child: Text('Error: $_error')));
-    if (_price == null) {
+    if (_error   != null) return Scaffold(body: Center(child: Text('Error: $_error')));
+    if (_price   == null) {
       WidgetsBinding.instance.addPostFrameCallback((_) => _promptForPrice());
       return const Scaffold(body: Center(child: CircularProgressIndicator()));
     }
 
-    final freeColor = Colors.grey.shade400;
-    final selList   = <String>[];
+    final selList = <String>[];
     for (var r = 0; r < _rows; r++) {
       for (var c = 0; c < _cols; c++) {
         final idx = r * _cols + c;
@@ -283,69 +270,44 @@ class _AsignarTarimaScreenState extends State<AsignarTarimaScreen> {
       }
     }
 
-    // Calcula la altura ideal para el contenedor basado en el número de filas
-    final double containerHeight = math.min(400, math.max(300, _rows * 40.0));
-
     return Scaffold(
       appBar: AppBar(
-        title: Text('Tarimas zona ${widget.zoneIndex+1}', style: const TextStyle(color: Colors.white)),
+        title: Text('Tarimas zona ${widget.zoneIndex + 1}',
+            style: const TextStyle(color: Colors.white)),
         backgroundColor: const Color(0xFF5A0F4D),
         leading: const BackButton(color: Colors.white),
       ),
       body: SingleChildScrollView(
         padding: const EdgeInsets.all(16),
         child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-          const Text('Escoge la tarima.',
+          const Text('Escoge las tarimas.',
               style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
           const SizedBox(height: 12),
-
-          // Esta sección se captura (incluye precio, grid y leyenda)
           RepaintBoundary(
             key: _repaintKey,
             child: Container(
               color: Colors.white,
               padding: const EdgeInsets.all(16),
               child: Column(
-                  mainAxisSize: MainAxisSize.min, // Importante para evitar expansión vertical
-                  children: [
-                    // Precio dentro de la imagen
-                    Text('Precio: \$$_price',
-                        style: Theme.of(context).textTheme.titleMedium),
-                    const SizedBox(height: 12),
-
-                    // Croquis con InteractiveViewer para zoom y pan
-                    SizedBox(
-                      height: containerHeight, // Altura dinámica basada en número de filas
-                      child: InteractiveViewer(
-                        boundaryMargin: const EdgeInsets.all(40.0),
-                        minScale: 0.2,
-                        maxScale: 2.0,
-                        child: SingleChildScrollView(
-                          scrollDirection: Axis.vertical, // Permitir scroll vertical
-                          child: SingleChildScrollView(
-                            scrollDirection: Axis.horizontal, // Permitir scroll horizontal
-                            child: _buildTarimaGrid(),
-                          ),
-                        ),
-                      ),
-                    ),
-
-                    const SizedBox(height: 12),
-
-                    // Leyenda
-                    const Row(children: [
-                      _Legend(color: Colors.purple, label: 'Ocupado'),
-                      SizedBox(width: 12),
-                      _Legend(color: Colors.grey, label: 'Libre'),
-                      SizedBox(width: 12),
-                      _Legend(color: Colors.pinkAccent, label: 'Seleccionado'),
-                    ]),
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Text('Precio por tarima: \$$_price',
+                      style: Theme.of(context).textTheme.titleMedium),
+                  const SizedBox(height: 12),
+                  _buildTarimaGrid(),
+                  const SizedBox(height: 12),
+                  const Row(children: [
+                    _Legend(color: Colors.purple,     label: 'Ocupado'),
+                    SizedBox(width: 12),
+                    _Legend(color: Colors.grey,       label: 'Libre'),
+                    SizedBox(width: 12),
+                    _Legend(color: Colors.pinkAccent, label: 'Seleccionado'),
                   ]),
+                ],
+              ),
             ),
           ),
-
           const SizedBox(height: 20),
-          // Botones fuera de la imagen
           Wrap(spacing: 8, runSpacing: 8, children: [
             ElevatedButton.icon(
               onPressed: _captureAndShare,
@@ -373,7 +335,7 @@ class _AsignarTarimaScreenState extends State<AsignarTarimaScreen> {
                 context,
                 MaterialPageRoute(
                   builder: (_) => PagoTarimaScreen(
-                    tarimaName: selList.first,
+                    tarimaNames: selList,
                     tarimaPrice: _price!,
                     zona: widget.zoneIndex,
                   ),
@@ -394,7 +356,6 @@ class _Legend extends StatelessWidget {
   final String label;
   const _Legend({required this.color, required this.label, Key? key})
       : super(key: key);
-
   @override
   Widget build(BuildContext c) => Row(children: [
     Container(width: 16, height: 16, color: color),

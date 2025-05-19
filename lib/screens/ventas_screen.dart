@@ -19,18 +19,22 @@ class _VentasScreenState extends State<VentasScreen> {
   bool _loading = true;
 
   // Sillas
-  int _sillasTotales = 0, _sillasPagadas = 0, _sillasPendientes = 0;
-  double _ventasSillas = 0, _abonosSillas = 0, _pendientesSillas = 0;
+  int    _sillasTotales    = 0, _sillasPagadas    = 0, _sillasPendientes    = 0;
+  double _ventasSillas     = 0, _abonosSillas     = 0, _pendientesSillas     = 0;
 
   // Lotes
-  int _lotesTotales = 0, _lotesPagados = 0, _lotesPendientes = 0;
-  double _ventasLotes = 0, _abonosLotes = 0, _pendientesLotes = 0;
+  int    _lotesTotales     = 0, _lotesPagados     = 0, _lotesPendientes     = 0;
+  double _ventasLotes      = 0, _abonosLotes      = 0, _pendientesLotes      = 0;
+
+  // Tarimas
+  int    _tarimasTotales   = 0, _tarimasPagadas   = 0, _tarimasPendientes   = 0;
+  double _ventasTarimas    = 0, _abonosTarimas    = 0, _pendientesTarimas    = 0;
 
   // Proveedores
   double _gastoProveedores = 0;
 
   // Ganancias
-  double _gananciaBruta = 0, _gananciaNeta = 0;
+  double _gananciaBruta    = 0, _gananciaNeta     = 0;
 
   @override
   void initState() {
@@ -39,49 +43,63 @@ class _VentasScreenState extends State<VentasScreen> {
   }
 
   Future<void> _loadData() async {
-    final uid = FirebaseAuth.instance.currentUser!.uid;
+    final uid     = FirebaseAuth.instance.currentUser!.uid;
     final userRef = FirebaseFirestore.instance.collection('users').doc(uid);
 
-    // 1) Reservas
+    // Resetear contadores
+    _sillasTotales = _sillasPagadas = _sillasPendientes = 0;
+    _ventasSillas = _abonosSillas = _pendientesSillas = 0.0;
+    _lotesTotales = _lotesPagados = _lotesPendientes = 0;
+    _ventasLotes = _abonosLotes = _pendientesLotes = 0.0;
+    _tarimasTotales = _tarimasPagadas = _tarimasPendientes = 0;
+    _ventasTarimas = _abonosTarimas = _pendientesTarimas = 0.0;
+    _gastoProveedores = 0.0;
+
+    // 1) Reservas: sillas, lotes, tarimas
     final reservasSnap = await userRef
         .collection('reservas')
         .orderBy('fecha', descending: true)
         .get();
     for (var doc in reservasSnap.docs) {
-      final r = doc.data();
-      final tipo = r['tipo'] as String? ?? '';
-      final pagado = r['pagado'] as bool? ?? false;
-      final total = (r['total'] as num?)?.toDouble() ?? 0;
-      final abono = (r['abono'] as num?)?.toDouble() ?? 0;
-      final pendiente = (r['pendiente'] as num?)?.toDouble() ?? 0;
+      final r         = doc.data();
+      final tipo      = r['tipo'] as String? ?? '';
+      final pagado    = r['pagado'] as bool? ?? false;
+      final total     = (r['total'] as num?)?.toDouble()     ?? 0.0;
+      final abono     = (r['abono'] as num?)?.toDouble()     ?? 0.0;
+      final pendiente = (r['pendiente'] as num?)?.toDouble() ?? 0.0;
 
       if (tipo == 'silla') {
         _sillasTotales++;
         _ventasSillas += total;
         _abonosSillas += abono;
         _pendientesSillas += pendiente;
-        if (pagado) _sillasPagadas++;
-        else _sillasPendientes++;
+        if (pagado) _sillasPagadas++; else _sillasPendientes++;
       } else if (tipo == 'lote') {
         _lotesTotales++;
         _ventasLotes += total;
         _abonosLotes += abono;
         _pendientesLotes += pendiente;
-        if (pagado) _lotesPagados++;
-        else _lotesPendientes++;
+        if (pagado) _lotesPagados++; else _lotesPendientes++;
+      } else if (tipo == 'tarima') {
+        _tarimasTotales++;
+        _ventasTarimas += total;
+        _abonosTarimas += abono;
+        _pendientesTarimas += pendiente;
+        if (pagado) _tarimasPagadas++; else _tarimasPendientes++;
       }
     }
 
-    // 2) Proveedores
+    // 2) Proveedores: sumar campo 'total'
     final provSnap = await userRef.collection('proveedores').get();
     for (var doc in provSnap.docs) {
-      final p = (doc.data()['monto'] as num?)?.toDouble() ?? 0;
+      final data = doc.data();
+      final p    = (data['total'] as num?)?.toDouble() ?? 0.0;
       _gastoProveedores += p;
     }
 
     // 3) Ganancias
-    _gananciaBruta = (_abonosSillas + _abonosLotes) - _gastoProveedores;
-    _gananciaNeta = _gananciaBruta - (_pendientesSillas + _pendientesLotes);
+    _gananciaBruta = (_abonosSillas + _abonosLotes + _abonosTarimas) - _gastoProveedores;
+    _gananciaNeta  = _gananciaBruta - (_pendientesSillas + _pendientesLotes + _pendientesTarimas);
 
     setState(() => _loading = false);
   }
@@ -118,6 +136,15 @@ class _VentasScreenState extends State<VentasScreen> {
           pw.Bullet(text: 'Ventas (total): \$${_ventasLotes.toStringAsFixed(2)}'),
           pw.Bullet(text: 'Abonos recibidos: \$${_abonosLotes.toStringAsFixed(2)}'),
           pw.Bullet(text: 'Pendientes total: \$${_pendientesLotes.toStringAsFixed(2)}'),
+          pw.SizedBox(height: 16),
+
+          pw.Text('🎪 TARIMAS', style: pw.TextStyle(fontSize: 18, fontWeight: pw.FontWeight.bold)),
+          pw.Bullet(text: 'Total vendidas: $_tarimasTotales'),
+          pw.Bullet(text: 'Pagadas: $_tarimasPagadas'),
+          pw.Bullet(text: 'Pendientes: $_tarimasPendientes'),
+          pw.Bullet(text: 'Ventas (total): \$${_ventasTarimas.toStringAsFixed(2)}'),
+          pw.Bullet(text: 'Abonos recibidos: \$${_abonosTarimas.toStringAsFixed(2)}'),
+          pw.Bullet(text: 'Pendientes total: \$${_pendientesTarimas.toStringAsFixed(2)}'),
           pw.SizedBox(height: 16),
 
           pw.Text('💼 PROVEEDORES', style: pw.TextStyle(fontSize: 18, fontWeight: pw.FontWeight.bold)),
@@ -157,7 +184,7 @@ class _VentasScreenState extends State<VentasScreen> {
     return Scaffold(
       appBar: AppBar(
         title: const Text('Ventas', style: TextStyle(color: Colors.white)),
-        iconTheme: IconThemeData(color: Colors.white),
+        iconTheme: const IconThemeData(color: Colors.white),
         backgroundColor: const Color(0xFF5A0F4D),
         centerTitle: true,
       ),
@@ -192,6 +219,19 @@ class _VentasScreenState extends State<VentasScreen> {
             ),
             const SizedBox(height: 16),
             _buildSection(
+              icon: Icons.event,
+              title: 'Tarimas',
+              children: [
+                'Total vendidas: $_tarimasTotales',
+                'Pagadas: $_tarimasPagadas',
+                'Pendientes: $_tarimasPendientes',
+                'Ventas (total): \$${_ventasTarimas.toStringAsFixed(2)}',
+                'Abonos recibidos: \$${_abonosTarimas.toStringAsFixed(2)}',
+                'Pendientes total: \$${_pendientesTarimas.toStringAsFixed(2)}',
+              ],
+            ),
+            const SizedBox(height: 16),
+            _buildSection(
               icon: Icons.store,
               title: 'Proveedores',
               children: [
@@ -204,7 +244,7 @@ class _VentasScreenState extends State<VentasScreen> {
               title: 'Ganancias',
               children: [
                 'Bruta: \$${_gananciaBruta.toStringAsFixed(2)}',
-                'Neta: \$${_gananciaNeta.toStringAsFixed(2)}',
+                'Neta:  \$${_gananciaNeta.toStringAsFixed(2)}',
               ],
             ),
             const SizedBox(height: 24),

@@ -1,5 +1,3 @@
-// lib/screens/asignar_lote_screen.dart
-
 import 'dart:io';
 import 'dart:typed_data';
 import 'dart:ui' as ui;
@@ -115,7 +113,7 @@ class _AsignarLoteScreenState extends State<AsignarLoteScreen> {
               await FirebaseFirestore.instance
                   .collection('users').doc(uid)
                   .collection('config').doc('prices')
-                  .collection('lotes').doc('zona_${widget.zoneIndex + 1}', )
+                  .collection('lotes').doc('zona_${widget.zoneIndex + 1}')
                   .set({'precio': v});
               setState(() => _price = v);
               Navigator.pop(ctx);
@@ -142,17 +140,14 @@ class _AsignarLoteScreenState extends State<AsignarLoteScreen> {
     final dir      = await getTemporaryDirectory();
     final file     = await File('${dir.path}/lotes.png').create();
     await file.writeAsBytes(bytes);
-    await Share.shareXFiles([XFile(file.path)], text: '¡Mira mis lotes y precios!');
+    await Share.shareXFiles([XFile(file.path)],
+        text: '¡Mira mis lotes y precios!');
   }
 
   @override
   Widget build(BuildContext context) {
-    if (_loading) {
-      return const Scaffold(body: Center(child: CircularProgressIndicator()));
-    }
-    if (_error != null) {
-      return Scaffold(body: Center(child: Text('Error: $_error')));
-    }
+    if (_loading) return const Scaffold(body: Center(child: CircularProgressIndicator()));
+    if (_error != null) return Scaffold(body: Center(child: Text('Error: $_error')));
     if (_price == null) {
       WidgetsBinding.instance.addPostFrameCallback((_) => _promptForPrecio());
       return const Scaffold(body: Center(child: CircularProgressIndicator()));
@@ -160,10 +155,15 @@ class _AsignarLoteScreenState extends State<AsignarLoteScreen> {
 
     final freeColor = Colors.grey.shade400;
 
+    // Construyo lista de lotes seleccionados
+    final selList = <String>[];
+    for (var i = 0; i < _count; i++) {
+      if (_selected[i]) selList.add('Lote ${i + 1}');
+    }
+
     return Scaffold(
       appBar: AppBar(
-        title: Text('Lotes zona ${widget.zoneIndex + 1}',  ),
-        foregroundColor: Colors.white,
+        title: Text('Lotes zona ${widget.zoneIndex + 1}', style: const TextStyle(color: Colors.white)),
         backgroundColor: const Color(0xFF5A0F4D),
         leading: const BackButton(color: Colors.white),
       ),
@@ -175,23 +175,17 @@ class _AsignarLoteScreenState extends State<AsignarLoteScreen> {
             RepaintBoundary(
               key: _repaintKey,
               child: Container(
-                color: Colors.white, // fondo blanco en la imagen
+                color: Colors.white,
+                padding: const EdgeInsets.all(16),
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    const Text(
-                      'Escoge el lote.',
-                      style:
-                      TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
-                    ),
+                    const Text('Escoge los lotes.',
+                        style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
                     const SizedBox(height: 8),
-
-                    // Precio (solo una vez)
-                    Text('Precio: \$$_price',
+                    Text('Precio por lote: \$$_price',
                         style: Theme.of(context).textTheme.titleMedium),
                     const SizedBox(height: 12),
-
-                    // Croquis horizontal
                     SizedBox(
                       height: 200,
                       child: ListView.builder(
@@ -209,8 +203,7 @@ class _AsignarLoteScreenState extends State<AsignarLoteScreen> {
                             onTap: () => _toggle(i),
                             child: Container(
                               width: 100,
-                              margin:
-                              const EdgeInsets.symmetric(horizontal: 8),
+                              margin: const EdgeInsets.symmetric(horizontal: 8),
                               decoration: BoxDecoration(
                                 color: bg,
                                 border: Border.all(color: Colors.black26),
@@ -235,13 +228,11 @@ class _AsignarLoteScreenState extends State<AsignarLoteScreen> {
                         },
                       ),
                     ),
-
                     const SizedBox(height: 12),
-                    // Leyenda
                     Row(children: [
-                      _LegendBox(color: Colors.purple, label: 'Ocupado'),
+                      _LegendBox(color: Colors.purple,     label: 'Ocupado'),
                       const SizedBox(width: 16),
-                      _LegendBox(color: freeColor, label: 'Libre'),
+                      _LegendBox(color: freeColor,         label: 'Libre'),
                       const SizedBox(width: 16),
                       _LegendBox(color: Colors.pinkAccent, label: 'Seleccionado'),
                     ]),
@@ -249,12 +240,9 @@ class _AsignarLoteScreenState extends State<AsignarLoteScreen> {
                 ),
               ),
             ),
-
             const SizedBox(height: 20),
-            // Botones (no se incluyen en la imagen)
             Wrap(
-              spacing: 8,
-              runSpacing: 8,
+              spacing: 8, runSpacing: 8,
               children: [
                 ElevatedButton.icon(
                   onPressed: _captureAndShare,
@@ -266,9 +254,7 @@ class _AsignarLoteScreenState extends State<AsignarLoteScreen> {
                     Navigator.push(
                       context,
                       MaterialPageRoute(
-                        builder: (_) => EditarLotesScreen(
-                          zoneIndex: widget.zoneIndex,
-                        ),
+                        builder: (_) => EditarLotesScreen(zoneIndex: widget.zoneIndex),
                       ),
                     );
                   },
@@ -276,16 +262,16 @@ class _AsignarLoteScreenState extends State<AsignarLoteScreen> {
                   label: const Text('Editar lotes'),
                 ),
                 ElevatedButton.icon(
-                  onPressed: _selected.every((s) => !s)
+                  onPressed: selList.isEmpty
                       ? null
                       : () {
-                    final idx = _selected.indexWhere((s) => s) + 1;
                     Navigator.push(
                       context,
                       MaterialPageRoute(
                         builder: (_) => PagoLoteScreen(
-                          loteName: 'Lote $idx',
+                          loteNames: selList,
                           lotePrice: _price!,
+                          zona: widget.zoneIndex,
                         ),
                       ),
                     );
@@ -307,7 +293,6 @@ class _LegendBox extends StatelessWidget {
   final String label;
   const _LegendBox({required this.color, required this.label, Key? key})
       : super(key: key);
-
   @override
   Widget build(BuildContext context) => Row(children: [
     Container(width: 16, height: 16, color: color),
