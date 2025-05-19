@@ -31,6 +31,10 @@ class _ConfigWizardScreenState extends State<ConfigWizardScreen> {
   late List<TextEditingController> _tarimasRowsCtrls;
   late List<TextEditingController> _tarimasColsCtrls;
 
+  // Listas para rastrear zonas ineficientes
+  final List<int> _sillasWasteful = [];
+  final List<int> _tarimasWasteful = [];
+
   @override
   void initState() {
     super.initState();
@@ -60,9 +64,22 @@ class _ConfigWizardScreenState extends State<ConfigWizardScreen> {
         _controller.nextPage(duration: const Duration(milliseconds: 300), curve: Curves.easeInOut);
       }
     } else {
+      _sillasWasteful.clear();
+      _tarimasWasteful.clear();
+
       if (_formKey2.currentState!.validate() && _validateGridRelationships()) {
-        _formKey2.currentState!.save();
-        _saveConfig();
+        // Si hay zonas ineficientes, mostrar advertencia
+        if (_sillasWasteful.isNotEmpty || _tarimasWasteful.isNotEmpty) {
+          _showWastefulWarning().then((shouldContinue) {
+            if (shouldContinue) {
+              _formKey2.currentState!.save();
+              _saveConfig();
+            }
+          });
+        } else {
+          _formKey2.currentState!.save();
+          _saveConfig();
+        }
       }
     }
   }
@@ -89,22 +106,92 @@ class _ConfigWizardScreenState extends State<ConfigWizardScreen> {
       final rows = int.tryParse(_sillasRowsCtrls[i].text) ?? 0;
       final cols = int.tryParse(_sillasColsCtrls[i].text) ?? 0;
 
+      // Verificar que no sea 0
+      if (seatsCount <= 0) {
+        errorMessage = 'Zona ${i+1} de sillas: El número de sillas debe ser mayor a 0';
+        isValid = false;
+        break;
+      }
+
+      if (rows <= 0) {
+        errorMessage = 'Zona ${i+1} de sillas: El número de filas debe ser mayor a 0';
+        isValid = false;
+        break;
+      }
+
+      if (cols <= 0) {
+        errorMessage = 'Zona ${i+1} de sillas: El número de columnas debe ser mayor a 0';
+        isValid = false;
+        break;
+      }
+
+      // Verificar relación sillas vs espacio disponible
       if (seatsCount > rows * cols) {
         errorMessage = 'Zona ${i+1} de sillas: El número de sillas no puede exceder filas × columnas';
         isValid = false;
         break;
+      }
+
+      // NUEVA VALIDACIÓN: Verificar eficiencia de uso del espacio
+      int totalSlots = rows * cols;
+      int emptySlots = totalSlots - seatsCount;
+      double utilizationRate = seatsCount / totalSlots;
+
+      if (utilizationRate < 0.5) {
+        _sillasWasteful.add(i); // Marcar esta zona como ineficiente
       }
     }
 
     // Validar tarimas
     if (isValid) {
       for (int i = 0; i < _numTarimas; i++) {
-        final seatsCount = int.tryParse(_tarimasCountCtrls[i].text) ?? 0;
+        final tarimCount = int.tryParse(_tarimasCountCtrls[i].text) ?? 0;
         final rows = int.tryParse(_tarimasRowsCtrls[i].text) ?? 0;
         final cols = int.tryParse(_tarimasColsCtrls[i].text) ?? 0;
 
-        if (seatsCount > rows * cols) {
+        // Verificar que no sea 0
+        if (tarimCount <= 0) {
+          errorMessage = 'Zona ${i+1} de tarimas: El número de tarimas debe ser mayor a 0';
+          isValid = false;
+          break;
+        }
+
+        if (rows <= 0) {
+          errorMessage = 'Zona ${i+1} de tarimas: El número de filas debe ser mayor a 0';
+          isValid = false;
+          break;
+        }
+
+        if (cols <= 0) {
+          errorMessage = 'Zona ${i+1} de tarimas: El número de columnas debe ser mayor a 0';
+          isValid = false;
+          break;
+        }
+
+        // Verificar relación tarimas vs espacio disponible
+        if (tarimCount > rows * cols) {
           errorMessage = 'Zona ${i+1} de tarimas: El número de tarimas no puede exceder filas × columnas';
+          isValid = false;
+          break;
+        }
+
+        // NUEVA VALIDACIÓN: Verificar eficiencia de uso del espacio
+        int totalSlots = rows * cols;
+        int emptySlots = totalSlots - tarimCount;
+        double utilizationRate = tarimCount / totalSlots;
+
+        if (utilizationRate < 0.5) {
+          _tarimasWasteful.add(i); // Marcar esta zona como ineficiente
+        }
+      }
+    }
+
+    // Validar lotes (solo verificar que no sea 0)
+    if (isValid) {
+      for (int i = 0; i < _numZonesLotes; i++) {
+        final lotesCount = int.tryParse(_lotesCtrls[i].text) ?? 0;
+        if (lotesCount <= 0) {
+          errorMessage = 'Zona ${i+1} de lotes: El número de lotes debe ser mayor a 0';
           isValid = false;
           break;
         }
@@ -118,6 +205,70 @@ class _ConfigWizardScreenState extends State<ConfigWizardScreen> {
     }
 
     return isValid;
+  }
+
+  // Mostrar advertencia de configuración ineficiente
+  Future<bool> _showWastefulWarning() async {
+    List<String> warnings = [];
+
+    for (var idx in _sillasWasteful) {
+      final seatsCount = int.tryParse(_sillasCountCtrls[idx].text) ?? 0;
+      final rows = int.tryParse(_sillasRowsCtrls[idx].text) ?? 0;
+      final cols = int.tryParse(_sillasColsCtrls[idx].text) ?? 0;
+      final totalSlots = rows * cols;
+      final emptySlots = totalSlots - seatsCount;
+      final wastePct = (emptySlots / totalSlots * 100).toStringAsFixed(1);
+
+      warnings.add('Zona ${idx+1} de sillas: $emptySlots/$totalSlots espacios vacíos ($wastePct%)');
+    }
+
+    for (var idx in _tarimasWasteful) {
+      final tarimCount = int.tryParse(_tarimasCountCtrls[idx].text) ?? 0;
+      final rows = int.tryParse(_tarimasRowsCtrls[idx].text) ?? 0;
+      final cols = int.tryParse(_tarimasColsCtrls[idx].text) ?? 0;
+      final totalSlots = rows * cols;
+      final emptySlots = totalSlots - tarimCount;
+      final wastePct = (emptySlots / totalSlots * 100).toStringAsFixed(1);
+
+      warnings.add('Zona ${idx+1} de tarimas: $emptySlots/$totalSlots espacios vacíos ($wastePct%)');
+    }
+
+    return await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Configuración ineficiente'),
+        content: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Text('Las siguientes zonas tienen muchos espacios vacíos:'),
+              const SizedBox(height: 8),
+              ...warnings.map((w) => Padding(
+                padding: const EdgeInsets.only(bottom: 4),
+                child: Text('• $w'),
+              )),
+              const SizedBox(height: 12),
+              const Text('¿Estás seguro de que quieres continuar con esta configuración?'),
+            ],
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('Revisar'),
+          ),
+          ElevatedButton(
+            onPressed: () => Navigator.pop(context, true),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: const Color(0xFF5A0F4D),
+              foregroundColor: Colors.white,
+            ),
+            child: const Text('Confirmar'),
+          ),
+        ],
+      ),
+    ) ?? false;
   }
 
   Future<void> _saveConfig() async {

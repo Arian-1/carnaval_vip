@@ -1,8 +1,9 @@
-// lib/screens/editar_tarimas_screen.dart
+// lib/screens/editar_tarimas_screen.dart (COMPLETO)
 
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+import 'confirmacion_edicion_screen.dart';
 
 class EditarTarimasScreen extends StatefulWidget {
   final int zoneIndex;
@@ -87,11 +88,73 @@ class _EditarTarimasScreenState extends State<EditarTarimasScreen> {
   }
 
   Future<void> _save() async {
+    // Validaciones de valores mínimos
+    if (_tempCount <= 0) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('El número de tarimas debe ser mayor a 0.')),
+      );
+      return;
+    }
+
+    if (_tempRows <= 0) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('El número de filas debe ser mayor a 0.')),
+      );
+      return;
+    }
+
+    if (_tempCols <= 0) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('El número de columnas debe ser mayor a 0.')),
+      );
+      return;
+    }
+
+    // Validación de la relación tarimas vs. filas×columnas
     if (_tempCount > _tempRows * _tempCols) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('El total de tarimas no puede exceder filas × columnas.')),
       );
       return;
+    }
+
+    // NUEVA VALIDACIÓN: Verificar si hay muchos espacios vacíos
+    int totalSlots = _tempRows * _tempCols;
+    int emptySlots = totalSlots - _tempCount;
+    double utilizationRate = _tempCount / totalSlots;
+
+    // Si más del 50% de espacios están vacíos, mostrar advertencia
+    if (utilizationRate < 0.5) {
+      // Mostrar diálogo de confirmación
+      bool? confirm = await showDialog<bool>(
+        context: context,
+        builder: (ctx) => AlertDialog(
+          title: const Text('Configuración ineficiente'),
+          content: Text(
+              'Tu configuración actual tendrá $emptySlots espacios vacíos de $totalSlots (${(emptySlots / totalSlots * 100).toStringAsFixed(1)}% desperdiciado).\n\n'
+                  '¿Estás seguro de que quieres continuar con esta configuración?'
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(ctx, false),
+              child: const Text('Revisar'),
+            ),
+            ElevatedButton(
+              onPressed: () => Navigator.pop(ctx, true),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: const Color(0xFF5A0F4D),
+                foregroundColor: Colors.white,
+              ),
+              child: const Text('Confirmar'),
+            ),
+          ],
+        ),
+      );
+
+      // Si el usuario no confirma, cancelar la operación
+      if (confirm != true) {
+        return;
+      }
     }
 
     final uid      = FirebaseAuth.instance.currentUser!.uid;
@@ -139,7 +202,17 @@ class _EditarTarimasScreenState extends State<EditarTarimasScreen> {
         .doc('zona_${widget.zoneIndex + 1}')
         .set({'precio': price});
 
-    Navigator.pop(context);
+    // 5) Navegar a pantalla de confirmación y luego volver a Home
+    Navigator.pushReplacement(
+      context,
+      MaterialPageRoute(
+        builder: (_) => const ConfirmacionEdicionScreen(),
+      ),
+    ).then((_) {
+      // Este código no se ejecutará ya que estamos usando pushReplacement,
+      // pero si cambiamos a push normal, esto navegaría a Home
+      Navigator.of(context).popUntil((route) => route.isFirst);
+    });
   }
 
   Widget _buildCounter(String label, int value, VoidCallback inc, VoidCallback dec) {

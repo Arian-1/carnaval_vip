@@ -20,6 +20,7 @@ import 'clientes_screen.dart';
 import 'proveedores_screen.dart';
 import 'ventas_screen.dart';
 import 'manage_zones_screen.dart'; // Importamos la nueva pantalla
+import 'mi_cuenta_screen.dart';
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({Key? key}) : super(key: key);
@@ -179,6 +180,17 @@ class _HomeScreenState extends State<HomeScreen> {
             decoration: BoxDecoration(color: Color(0xFF5A0F4D)),
             child: Text('Menú',
                 style: TextStyle(color: Colors.white, fontSize: 24)),
+          ),
+          ListTile(
+            leading: const Icon(Icons.person),
+            title: const Text('Mi cuenta'),
+            onTap: () {
+              Navigator.pop(context); // Cierra el drawer
+              Navigator.push(
+                  context,
+                  MaterialPageRoute(builder: (_) => const MiCuentaScreen())
+              );
+            },
           ),
 
           ListTile(

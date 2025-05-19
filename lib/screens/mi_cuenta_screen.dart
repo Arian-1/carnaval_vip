@@ -1,3 +1,5 @@
+// lib/screens/mi_cuenta_screen.dart
+
 import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
@@ -60,7 +62,7 @@ class _MiCuentaScreenState extends State<MiCuentaScreen> {
 
   Future<void> _editField(String field, String currentValue) async {
     final TextEditingController controller = TextEditingController(text: currentValue);
-    
+
     String? newValue = await showDialog<String>(
       context: context,
       builder: (context) => AlertDialog(
@@ -96,7 +98,7 @@ class _MiCuentaScreenState extends State<MiCuentaScreen> {
                 .doc(user.uid)
                 .update({field: newValue});
           }
-          
+
           // Actualizar email o contraseña en Authentication
           if (field == 'email') {
             await user.updateEmail(newValue);
@@ -164,24 +166,24 @@ class _MiCuentaScreenState extends State<MiCuentaScreen> {
       body: isLoading
           ? const Center(child: CircularProgressIndicator())
           : SingleChildScrollView(
-              child: Padding(
-                padding: const EdgeInsets.all(16.0),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    const Text(
-                      'Mi cuenta',
-                      style: TextStyle(
-                        fontSize: 24,
-                        fontWeight: FontWeight.bold,
-                      ),
-                    ),
-                    const SizedBox(height: 16),
-                    _buildInfoCard(),
-                  ],
+        child: Padding(
+          padding: const EdgeInsets.all(16.0),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Text(
+                'Mi cuenta',
+                style: TextStyle(
+                  fontSize: 24,
+                  fontWeight: FontWeight.bold,
                 ),
               ),
-            ),
+              const SizedBox(height: 16),
+              _buildInfoCard(),
+            ],
+          ),
+        ),
+      ),
     );
   }
 
@@ -193,27 +195,27 @@ class _MiCuentaScreenState extends State<MiCuentaScreen> {
         child: Column(
           children: [
             _buildUserInfoRow(
-              Icons.person, 
+              Icons.person,
               userData['nombre'] ?? 'Nombre de usuario',
-              () => _editField('nombre', userData['nombre'] ?? ''),
+                  () => _editField('nombre', userData['nombre'] ?? ''),
             ),
             const Divider(),
             _buildUserInfoRow(
-              Icons.phone, 
+              Icons.phone,
               userData['telefono'] ?? '123456789',
-              () => _editField('telefono', userData['telefono'] ?? ''),
+                  () => _editField('telefono', userData['telefono'] ?? ''),
             ),
             const Divider(),
             _buildUserInfoRow(
-              Icons.email, 
+              Icons.email,
               userData['email'] ?? 'usuario@ejemplo.com',
-              () => _editField('email', userData['email'] ?? ''),
+                  () => _editField('email', userData['email'] ?? ''),
             ),
             const Divider(),
             _buildUserInfoRow(
-              Icons.lock, 
+              Icons.lock,
               '•' * 4, // Mostrar asteriscos para la contraseña
-              () => _editField('password', ''),
+                  () => _editField('password', ''),
             ),
           ],
         ),

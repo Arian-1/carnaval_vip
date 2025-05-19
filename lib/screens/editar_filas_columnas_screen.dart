@@ -1,8 +1,9 @@
-// lib/screens/editar_filas_columnas_screen.dart
+// lib/screens/editar_filas_columnas_screen.dart (COMPLETO)
 
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+import 'confirmacion_edicion_screen.dart';
 
 class EditarFilasColumnasScreen extends StatefulWidget {
   final int zoneIndex;
@@ -65,7 +66,7 @@ class _EditarFilasColumnasScreenState
 
       _priceCtrls.clear();
       for (var r = 0; r < _tempRowCount; r++) {
-        final v = (r < raw.length && raw[r] is int) ? raw[r] as int : 0;
+        final v = (r < raw.length && raw[r] is num) ? (raw[r] as num).toInt() : 0;
         _priceCtrls.add(TextEditingController(text: v.toString()));
       }
 
@@ -121,6 +122,45 @@ class _EditarFilasColumnasScreenState
       return;
     }
 
+    // NUEVA VALIDACIÓN: Verificar si hay muchos espacios vacíos
+    int totalSlots = _tempRowCount * _tempColCount;
+    int emptySlots = totalSlots - _tempSeatCount;
+    double utilizationRate = _tempSeatCount / totalSlots;
+
+    // Si más del 50% de espacios están vacíos, mostrar advertencia
+    if (utilizationRate < 0.5) {
+      // Mostrar diálogo de confirmación
+      bool? confirm = await showDialog<bool>(
+        context: context,
+        builder: (ctx) => AlertDialog(
+          title: const Text('Configuración ineficiente'),
+          content: Text(
+              'Tu configuración actual tendrá $emptySlots espacios vacíos de $totalSlots (${(emptySlots / totalSlots * 100).toStringAsFixed(1)}% desperdiciado).\n\n'
+                  '¿Estás seguro de que quieres continuar con esta configuración?'
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(ctx, false),
+              child: const Text('Revisar'),
+            ),
+            ElevatedButton(
+              onPressed: () => Navigator.pop(ctx, true),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: const Color(0xFF5A0F4D),
+                foregroundColor: Colors.white,
+              ),
+              child: const Text('Confirmar'),
+            ),
+          ],
+        ),
+      );
+
+      // Si el usuario no confirma, cancelar la operación
+      if (confirm != true) {
+        return;
+      }
+    }
+
     final uid     = FirebaseAuth.instance.currentUser!.uid;
     final userRef = FirebaseFirestore.instance.collection('users').doc(uid);
 
@@ -157,7 +197,17 @@ class _EditarFilasColumnasScreenState
         .doc('zona_${zi+1}')
         .set({ 'filaPrecios': precios });
 
-    Navigator.pop(context);
+    // Navegar a pantalla de confirmación y luego volver a Home
+    Navigator.pushReplacement(
+      context,
+      MaterialPageRoute(
+        builder: (_) => const ConfirmacionEdicionScreen(),
+      ),
+    ).then((_) {
+      // Este código no se ejecutará ya que estamos usando pushReplacement,
+      // pero si cambiamos a push normal, esto navegaría a Home
+      Navigator.of(context).popUntil((route) => route.isFirst);
+    });
   }
 
   @override
@@ -176,7 +226,6 @@ class _EditarFilasColumnasScreenState
         foregroundColor: Colors.white,
         title: Text('Editar sillas zona ${widget.zoneIndex + 1}'),
         backgroundColor: const Color(0xFF5A0F4D),
-
         centerTitle: true,
       ),
       body: SingleChildScrollView(
@@ -279,5 +328,3 @@ class _EditarFilasColumnasScreenState
     );
   }
 }
-
-

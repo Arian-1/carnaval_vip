@@ -3,6 +3,7 @@
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+import 'confirmacion_edicion_screen.dart';
 
 class EditarLotesScreen extends StatefulWidget {
   /// Índice de la zona de lotes (0 = zona 1, 1 = zona 2, …)
@@ -68,7 +69,7 @@ class _EditarLotesScreenState extends State<EditarLotesScreen> {
       for (var doc in resSnap.docs) {
         final data = doc.data();
         // filtramos solo esta zona (zona puede venir como int o string)
-        if (data['zona'].toString() == zonaStr) {
+        if (data['zona'].toString() == (widget.zoneIndex + 1).toString()) {
           final item = data['item'] as String;           // "Lote 3"
           final numStr = item.replaceAll(RegExp(r'[^0-9]'), '');
           final idx = int.tryParse(numStr);
@@ -122,7 +123,17 @@ class _EditarLotesScreenState extends State<EditarLotesScreen> {
         .doc('zona_${widget.zoneIndex + 1}')
         .set({'precio': newPrice});
 
-    Navigator.pop(context);
+    // 3) Navegar a pantalla de confirmación y luego volver a Home
+    Navigator.pushReplacement(
+      context,
+      MaterialPageRoute(
+        builder: (_) => const ConfirmacionEdicionScreen(),
+      ),
+    ).then((_) {
+      // Este código no se ejecutará ya que estamos usando pushReplacement,
+      // pero si cambiamos a push normal, esto navegaría a Home
+      Navigator.of(context).popUntil((route) => route.isFirst);
+    });
   }
 
   @override
@@ -231,4 +242,3 @@ class _EditarLotesScreenState extends State<EditarLotesScreen> {
     );
   }
 }
-

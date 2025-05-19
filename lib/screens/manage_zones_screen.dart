@@ -137,15 +137,57 @@ class _ManageZonesScreenState extends State<ManageZonesScreen> {
         return;
       }
 
+      if ((tipo == 'sillas' || tipo == 'tarimas') && (_rowCount <= 0 || _colCount <= 0)) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Filas y columnas deben ser mayores a 0')),
+        );
+        return;
+      }
+
       final setupDoc = await _setupRef.get();
       final data = setupDoc.data() as Map<String, dynamic>;
 
       if (tipo == 'extras') {
-        // Manejar extras de manera especial (código sin cambios)
-        // ...
+        // Manejar extras de manera especial
+        if (_extraName.trim().isEmpty) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('El nombre de la zona no puede estar vacío')),
+          );
+          return;
+        }
+
+        final extras = List<String>.from(data['extras'] ?? []);
+        extras.add(_extraName);
+        await _setupRef.update({'extras': extras});
+
+        // Crear en layout
+        final uid = FirebaseAuth.instance.currentUser!.uid;
+        await FirebaseFirestore.instance
+            .collection('users')
+            .doc(uid)
+            .collection('layout')
+            .doc(_extraName.toLowerCase())
+            .set({
+          'name': _extraName,
+          'position': {'x': 0, 'y': 0},
+          'size': {'width': 100, 'height': 80},
+        });
+
+        // Recargar zonas
+        _loadZones();
+
+        // Mostrar confirmación
+        Navigator.push(
+          context,
+          MaterialPageRoute(builder: (_) => const ConfirmacionEdicionScreen()),
+        ).then((_) => _loadZones());
+
         return;
       }
 
+      // Para zonas normales (sillas, lotes, tarimas)
+
+      // Obtener el contador actual de este tipo de zona
       // Para zonas normales (sillas, lotes, tarimas)
 
       // Obtener el contador actual de este tipo de zona
@@ -214,7 +256,6 @@ class _ManageZonesScreenState extends State<ManageZonesScreen> {
           'cols': cols,
         }, SetOptions(merge: true));
 
-        // ELIMINAMOS ESTAS LÍNEAS DE INICIALIZACIÓN DE PRECIOS
         // No iniciamos precio para que se solicite al abrir la zona
       }
       else if (tipo == 'lotes') {
@@ -239,7 +280,6 @@ class _ManageZonesScreenState extends State<ManageZonesScreen> {
           'counts': counts,
         }, SetOptions(merge: true));
 
-        // ELIMINAMOS ESTAS LÍNEAS DE INICIALIZACIÓN DE PRECIOS
         // No iniciamos precio para que se solicite al abrir la zona
       }
       else if (tipo == 'tarimas') {
@@ -276,7 +316,6 @@ class _ManageZonesScreenState extends State<ManageZonesScreen> {
           'zones': zones,
         }, SetOptions(merge: true));
 
-        // ELIMINAMOS ESTAS LÍNEAS DE INICIALIZACIÓN DE PRECIOS
         // No iniciamos precio para que se solicite al abrir la zona
       }
 
@@ -574,52 +613,61 @@ class _ManageZonesScreenState extends State<ManageZonesScreen> {
           ),
           ElevatedButton(
             onPressed: () {
-              Navigator.pop(context);
-              _addZone('sillas');
-            },
-            style: ElevatedButton.styleFrom(
-              backgroundColor: const Color(0xFF5A0F4D),
-              foregroundColor: Colors.white,
-            ),
-            child: const Text('Crear'),
-          ),
-        ],
-      ),
-    );
-  }
+              // Validaciones
+              if (_totalCount <= 0 || _rowCount <= 0 || _colCount <= 0) {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(content: Text('Todos los valores deben ser mayores a 0')),
+                );
+                return;
+              }
 
-  void _showLotesConfigDialog() {
-    _totalCount = 1;
+              if (_totalCount > _rowCount * _colCount) {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(content: Text('El número de sillas no puede exceder filas × columnas')),
+                );
+                return;
+              }
 
-    showDialog(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('Configurar Zona de Lotes'),
-        content: SingleChildScrollView(
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              TextField(
-                controller: TextEditingController(text: '1'),
-                decoration: const InputDecoration(
-                  labelText: 'Número de lotes',
-                  hintText: 'Ej: 10',
-                ),
-                keyboardType: TextInputType.number,
-                onChanged: (v) => _totalCount = int.tryParse(v) ?? 1,
-              ),
-            ],
-          ),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: const Text('Cancelar'),
-          ),
-          ElevatedButton(
-            onPressed: () {
-              Navigator.pop(context);
-              _addZone('lotes');
+              // Verificar espacios vacíos
+              int totalSlots = _rowCount * _colCount;
+              int emptySlots = totalSlots - _totalCount;
+              double utilizationRate = _totalCount / totalSlots;
+
+              if (utilizationRate < 0.5) {
+                // Mostrar advertencia pero sin cerrar el diálogo actual
+                showDialog(
+                  context: context,
+                  builder: (ctx) => AlertDialog(
+                    title: const Text('Configuración ineficiente'),
+                    content: Text(
+                        'Tu configuración tendrá $emptySlots espacios vacíos de $totalSlots (${(emptySlots / totalSlots * 100).toStringAsFixed(1)}% desperdiciado).\n\n'
+                            '¿Estás seguro de que quieres continuar?'
+                    ),
+                    actions: [
+                      TextButton(
+                        onPressed: () => Navigator.pop(ctx), // Volver al diálogo anterior
+                        child: const Text('Revisar'),
+                      ),
+                      ElevatedButton(
+                        onPressed: () {
+                          Navigator.pop(ctx); // Cerrar diálogo de advertencia
+                          Navigator.pop(context); // Cerrar diálogo de configuración
+                          _addZone('sillas'); // Proceder con la creación
+                        },
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: const Color(0xFF5A0F4D),
+                          foregroundColor: Colors.white,
+                        ),
+                        child: const Text('Confirmar'),
+                      ),
+                    ],
+                  ),
+                );
+              } else {
+                // Proceder normalmente si no hay problema de espacios vacíos
+                Navigator.pop(context);
+                _addZone('sillas');
+              }
             },
             style: ElevatedButton.styleFrom(
               backgroundColor: const Color(0xFF5A0F4D),
@@ -686,8 +734,113 @@ class _ManageZonesScreenState extends State<ManageZonesScreen> {
           ),
           ElevatedButton(
             onPressed: () {
+              // Validaciones
+              if (_totalCount <= 0 || _rowCount <= 0 || _colCount <= 0) {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(content: Text('Todos los valores deben ser mayores a 0')),
+                );
+                return;
+              }
+
+              if (_totalCount > _rowCount * _colCount) {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(content: Text('El número de tarimas no puede exceder filas × columnas')),
+                );
+                return;
+              }
+
+              // Verificar espacios vacíos
+              int totalSlots = _rowCount * _colCount;
+              int emptySlots = totalSlots - _totalCount;
+              double utilizationRate = _totalCount / totalSlots;
+
+              if (utilizationRate < 0.5) {
+                // Mostrar advertencia pero sin cerrar el diálogo actual
+                showDialog(
+                  context: context,
+                  builder: (ctx) => AlertDialog(
+                    title: const Text('Configuración ineficiente'),
+                    content: Text(
+                        'Tu configuración tendrá $emptySlots espacios vacíos de $totalSlots (${(emptySlots / totalSlots * 100).toStringAsFixed(1)}% desperdiciado).\n\n'
+                            '¿Estás seguro de que quieres continuar?'
+                    ),
+                    actions: [
+                      TextButton(
+                        onPressed: () => Navigator.pop(ctx), // Volver al diálogo anterior
+                        child: const Text('Revisar'),
+                      ),
+                      ElevatedButton(
+                        onPressed: () {
+                          Navigator.pop(ctx); // Cerrar diálogo de advertencia
+                          Navigator.pop(context); // Cerrar diálogo de configuración
+                          _addZone('tarimas'); // Proceder con la creación
+                        },
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: const Color(0xFF5A0F4D),
+                          foregroundColor: Colors.white,
+                        ),
+                        child: const Text('Confirmar'),
+                      ),
+                    ],
+                  ),
+                );
+              } else {
+                // Proceder normalmente si no hay problema de espacios vacíos
+                Navigator.pop(context);
+                _addZone('tarimas');
+              }
+            },
+            style: ElevatedButton.styleFrom(
+              backgroundColor: const Color(0xFF5A0F4D),
+              foregroundColor: Colors.white,
+            ),
+            child: const Text('Crear'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _showLotesConfigDialog() {
+    _totalCount = 1;
+
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Configurar Zona de Lotes'),
+        content: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              TextField(
+                controller: TextEditingController(text: '1'),
+                decoration: const InputDecoration(
+                  labelText: 'Número de lotes',
+                  hintText: 'Ej: 10',
+                ),
+                keyboardType: TextInputType.number,
+                onChanged: (v) => _totalCount = int.tryParse(v) ?? 1,
+              ),
+            ],
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Cancelar'),
+          ),
+          ElevatedButton(
+            onPressed: () {
+              // Validación simple para lotes: solo verificar que sea mayor a 0
+              if (_totalCount <= 0) {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(content: Text('El número de lotes debe ser mayor a 0')),
+                );
+                return;
+              }
+
               Navigator.pop(context);
-              _addZone('tarimas');
+              _addZone('lotes');
             },
             style: ElevatedButton.styleFrom(
               backgroundColor: const Color(0xFF5A0F4D),
